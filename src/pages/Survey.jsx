@@ -127,7 +127,7 @@ function Welcome({ onStart }) {
         <div className="bg-gradient-to-br from-[#1A0A0A] to-[#3D0C0C] p-8 text-center">
           <span className="inline-block bg-[#E4002B] text-white font-black text-sm px-3 py-1 rounded-md mb-3">KFC</span>
           <h1 className="text-white text-2xl font-bold mb-2">Listen</h1>
-          <p className="text-white/60 text-sm">Tu voz construye nuestro mejor KFC · 2025</p>
+          <p className="text-white/60 text-sm">Tu voz construye nuestro mejor KFC · 2026</p>
         </div>
         <div className="p-6">
           <div className="grid grid-cols-3 gap-2 mb-5">
