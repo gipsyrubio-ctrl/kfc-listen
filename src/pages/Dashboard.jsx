@@ -1,181 +1,271 @@
-import { useState } from 'react'
-import { useAuth } from '../hooks/useAuth.js'
-import { useAnalytics } from '../hooks/useAnalytics.js'
+import { useState, useEffect, useCallback } from 'react'
+import { supabase } from '../lib/supabase.js'
 
+const RED='#E4002B', DARK='#1A0A0A', WARM='#FFF5F0', S='#fff', S2='#FFF8F6', S3='#F5F0EE'
+const BD='#E8DDD9', T2='#5C4A44', T3='#9C8680'
+const OK='#16A34A', WARN='#D97706', DANGER='#DC2626'
 const DIMS = ['Engagement','Pertenencia','Recursos','Apoyo del Jefe','Bienestar','Expectativas','Reconocimiento','Permanencia']
-const AREAS_FILTER = ['Operaciones','RRHH','Finanzas','Sistemas','Planta Bogotá - Operativo','Plantas CAR','Planta Medellín - Operativo','Domicilios','Auditoría','Mercadeo']
+const AREAS_F = ['Operaciones','RRHH','Finanzas','Sistemas','Planta Bogotá - Operativo','Plantas CAR','Planta Medellín - Operativo','Domicilios','Auditoría','Mercadeo']
+const colS = v => v>=70 ? OK : v>=55 ? WARN : DANGER
 
-function colScore(v) {
-  if (v >= 70) return '#16A34A'
-  if (v >= 55) return '#D97706'
-  return '#DC2626'
+const STOPWORDS = new Set(['el','la','los','las','un','una','unos','unas','de','del','al','en','con','por','para','que','se','me','mi','tu','su','nos','es','son','fue','ser','estar','hay','más','pero','como','si','no','lo','le','les','y','a','o','e','u','muy','todo','toda','todos','todas','este','esta','estos','estas','ese','esa','esos','esas','aquel','aquella','ya','bien','cuando','donde','quien','cual','cuales','porque','aunque','sino','también','tampoco','así','aquí','allí','ahí','hoy','ayer','mañana','siempre','nunca','vez','veces','cada','otro','otra','otros','otras','mismo','misma','tanto','tan','solo','sólo','hacer','tiene','tengo','tenemos','pueden','poder','debe','deben','quiero','quiere','mucho','poco','algo','nada','entre','sobre','bajo','ante','tras','durante','mediante','según'])
+
+function getTopWords(texts, topN = 40) {
+  const freq = {}
+  texts.forEach(text => {
+    if (!text) return
+    const words = text.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-záéíóúüñ\s]/gi, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !STOPWORDS.has(w))
+    words.forEach(w => { freq[w] = (freq[w] || 0) + 1 })
+  })
+  return Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN)
+    .map(([word, count]) => ({ word, count }))
 }
 
-export default function Dashboard() {
-  const { user, logout } = useAuth()
-  const [activeTab,    setActiveTab]    = useState('dashboard')
-  const [filterArea,   setFilterArea]   = useState('')
-  const [filterTenure, setFilterTenure] = useState('')
+function card(extra={}) { return { background:S, borderRadius:12, padding:16, boxShadow:'0 2px 10px rgba(228,0,43,0.07)', ...extra } }
 
-  const { kpis, dimensions, areas, sentiment, loading } = useAnalytics(filterArea || null, filterTenure || null)
+export default function Dashboard({ setUser }) {
+  const [tab, setTab]         = useState('dash')
+  const [fArea, setFArea]     = useState('')
+  const [fTenure, setFTenure] = useState('')
+  const [kpis, setKpis]       = useState(null)
+  const [dims, setDims]       = useState([])
+  const [areas, setAreas]     = useState([])
+  const [loading, setLoading] = useState(true)
+  const [wordData, setWordData] = useState([])
+  const [loadingWords, setLoadingWords] = useState(false)
+
+  const logout = async () => { await supabase.auth.signOut() }
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      let q = supabase.from('responses')
+        .select('section_id,question_index,question_type,likert_value,nps_value,survey_sessions!inner(area,tenure_range,completed)')
+        .eq('survey_sessions.completed', true)
+      if (fArea)   q = q.eq('survey_sessions.area', fArea)
+      if (fTenure) q = q.eq('survey_sessions.tenure_range', fTenure)
+      const { data: rows } = await q
+
+      const lk1   = (rows||[]).filter(r=>r.question_type==='likert'&&r.section_id===1&&r.likert_value)
+      const lkAll = (rows||[]).filter(r=>r.question_type==='likert'&&r.likert_value)
+      const lkFav = lkAll.filter(r=>[4,5].includes(r.likert_value))
+      const npsR  = (rows||[]).filter(r=>r.question_type==='nps'&&r.nps_value!==null)
+      const prom  = npsR.filter(r=>r.nps_value>=9).length
+      const det   = npsR.filter(r=>r.nps_value<=6).length
+      const engAvg = lk1.length ? lk1.reduce((s,r)=>s+r.likert_value,0)/lk1.length : 0
+      const { count:total } = await supabase.from('survey_sessions').select('*',{count:'exact',head:true}).eq('completed',true)
+
+      setKpis({
+        engagement:   Math.round(((engAvg-1)/4)*100),
+        favorability: lkAll.length ? Math.round((lkFav.length/lkAll.length)*100) : 0,
+        enps:         npsR.length  ? Math.round(((prom-det)/npsR.length)*100) : 0,
+        total:        total||0,
+        promPct:      npsR.length  ? Math.round((prom/npsR.length)*100) : 0,
+        detPct:       npsR.length  ? Math.round((det/npsR.length)*100)  : 0,
+      })
+
+      const dimScores = DIMS.map((name,idx) => {
+        const sr = (rows||[]).filter(r=>r.section_id===idx+1&&r.question_type==='likert'&&r.likert_value)
+        if(!sr.length) return {name,score:0,favorable:0,neutral:0,unfavorable:0}
+        const avg = sr.reduce((s,r)=>s+r.likert_value,0)/sr.length
+        return {
+          name, score: Math.round(((avg-1)/4)*100),
+          favorable:   Math.round(sr.filter(r=>[4,5].includes(r.likert_value)).length/sr.length*100),
+          neutral:     Math.round(sr.filter(r=>r.likert_value===3).length/sr.length*100),
+          unfavorable: Math.round(sr.filter(r=>[1,2].includes(r.likert_value)).length/sr.length*100),
+        }
+      })
+      setDims(dimScores)
+
+      if(!fArea) {
+        const {data:sessions} = await supabase.from('survey_sessions').select('id,area').eq('completed',true)
+        const {data:engR} = await supabase.from('responses').select('session_id,likert_value').eq('section_id',1).eq('question_type','likert')
+        const areaMap={}
+        ;(sessions||[]).forEach(s=>{if(!areaMap[s.area])areaMap[s.area]=[];areaMap[s.area].push(s.id)})
+        const ranking = Object.entries(areaMap).map(([area,ids])=>{
+          const ar=(engR||[]).filter(r=>ids.includes(r.session_id)&&r.likert_value)
+          const avg=ar.length?ar.reduce((s,r)=>s+r.likert_value,0)/ar.length:0
+          return {area,score:Math.round(((avg-1)/4)*100),n:ids.length}
+        }).sort((a,b)=>b.score-a.score)
+        setAreas(ranking)
+      }
+    } catch(e){ console.error(e) }
+    setLoading(false)
+  }, [fArea, fTenure])
+
+  const loadWords = useCallback(async () => {
+    setLoadingWords(true)
+    try {
+      let q = supabase.from('responses')
+        .select('open_text, survey_sessions!inner(area,completed)')
+        .eq('question_type','open')
+        .eq('survey_sessions.completed', true)
+        .not('open_text','is',null)
+      if (fArea) q = q.eq('survey_sessions.area', fArea)
+      const { data } = await q
+      const texts = (data||[]).map(r=>r.open_text).filter(Boolean)
+      const words = getTopWords(texts, 40)
+      setWordData(words)
+    } catch(e){ console.error(e) }
+    setLoadingWords(false)
+  }, [fArea])
+
+  useEffect(()=>{ loadData(); loadWords() }, [loadData, loadWords])
+
+  const navBtn = (id,label) => (
+    <button onClick={()=>setTab(id)} style={{ padding:'5px 13px', borderRadius:7, border:'none', background: tab===id ? 'rgba(228,0,43,0.25)' : 'transparent', color: tab===id ? '#fff' : 'rgba(255,255,255,0.5)', fontSize:12, fontWeight:600, cursor:'pointer' }}>{label}</button>
+  )
+
+  const WORD_COLORS = [RED,'#FF6B35','#8B5CF6','#0EA5E9',OK,WARN,'#EC4899','#14B8A6']
+  const maxCount = wordData.length ? wordData[0].count : 1
+  const minCount = wordData.length ? wordData[wordData.length-1].count : 1
 
   return (
-    <div className="min-h-screen bg-[#FFF5F0]">
-      {/* NAV */}
-      <nav className="sticky top-0 z-50 bg-[#1A0A0A] h-12 flex items-center px-4 gap-3">
-        <span className="bg-[#E4002B] text-white font-black text-xs px-2 py-0.5 rounded">KFC</span>
-        <span className="text-white font-bold text-sm">Listen</span>
-        <div className="flex gap-1 ml-auto">
-          <button onClick={() => setActiveTab('dashboard')}
-            className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${activeTab==='dashboard' ? 'bg-[#E4002B]/25 text-white' : 'text-white/50 hover:text-white'}`}>
-            📊 Dashboard
-          </button>
-          <button onClick={() => setActiveTab('ia')}
-            className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${activeTab==='ia' ? 'bg-[#E4002B]/25 text-white' : 'text-white/50 hover:text-white'}`}>
-            ✨ IA
-          </button>
-          <button onClick={logout} className="ml-2 text-white/40 hover:text-white text-xs px-2">
-            Salir
-          </button>
+    <div style={{ minHeight:'100vh', background:WARM }}>
+      <nav style={{ position:'sticky', top:0, zIndex:50, background:DARK, height:50, display:'flex', alignItems:'center', padding:'0 16px', gap:10 }}>
+        <span style={{ background:RED, color:'#fff', fontWeight:800, fontSize:13, padding:'2px 8px', borderRadius:5 }}>KFC</span>
+        <span style={{ color:'rgba(255,255,255,0.9)', fontWeight:700, fontSize:15 }}>Listen</span>
+        <div style={{ display:'flex', gap:3, marginLeft:'auto' }}>
+          {navBtn('dash','📊 Dashboard')}
+          {navBtn('voz','💬 Voz del Empleado')}
+          <button onClick={logout} style={{ marginLeft:8, background:'transparent', border:'none', color:'rgba(255,255,255,0.4)', fontSize:12, cursor:'pointer' }}>Salir</button>
         </div>
       </nav>
 
-      {activeTab === 'dashboard' && (
-        <div className="p-4 max-w-6xl mx-auto">
-          {/* Header + filtros */}
-          <div className="flex flex-wrap justify-between items-start gap-3 mb-4">
+      {tab==='dash' && (
+        <div style={{ padding:16, maxWidth:1000, margin:'0 auto' }}>
+          <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:16 }}>
             <div>
-              <h1 className="text-lg font-bold text-[#1A0A0A]">Dashboard ejecutivo · People Analytics</h1>
-              <p className="text-xs text-[#9C8680] mt-0.5">KFC Listen · {kpis?.totalResp || 0} respuestas registradas</p>
+              <h1 style={{ fontSize:18, fontWeight:700, color:DARK }}>Dashboard ejecutivo · People Analytics</h1>
+              <p style={{ fontSize:11, color:T3, marginTop:3 }}>KFC Listen · {kpis?.total||0} respuestas registradas</p>
             </div>
-            <div className="flex flex-wrap gap-2 items-center">
-              <select value={filterArea} onChange={e => setFilterArea(e.target.value)}
-                className={`px-3 py-1.5 border-2 rounded-full text-xs text-[#5C4A44] bg-white focus:outline-none cursor-pointer
-                  ${filterArea ? 'border-[#E4002B] bg-[#FFF0EF] text-[#E4002B] font-semibold' : 'border-[#E8DDD9]'}`}>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' }}>
+              <select value={fArea} onChange={e=>setFArea(e.target.value)} style={{ padding:'6px 12px', border: fArea ? `2px solid ${RED}` : `1.5px solid ${BD}`, borderRadius:99, fontSize:11, color: fArea ? RED : T2, background: fArea ? '#FFF0EF' : S, outline:'none', fontWeight: fArea ? 700 : 400, cursor:'pointer' }}>
                 <option value="">Todas las áreas</option>
-                {AREAS_FILTER.map(a => <option key={a}>{a}</option>)}
+                {AREAS_F.map(a=><option key={a}>{a}</option>)}
               </select>
-              <select value={filterTenure} onChange={e => setFilterTenure(e.target.value)}
-                className="px-3 py-1.5 border-2 border-[#E8DDD9] rounded-full text-xs text-[#5C4A44] bg-white focus:outline-none cursor-pointer">
+              <select value={fTenure} onChange={e=>setFTenure(e.target.value)} style={{ padding:'6px 12px', border:`1.5px solid ${BD}`, borderRadius:99, fontSize:11, color:T2, background:S, outline:'none', cursor:'pointer' }}>
                 <option value="">Toda la antigüedad</option>
-                {['Menos de 6 meses','6 meses – 1 año','1 – 2 años','2 – 4 años','Más de 4 años'].map(t => <option key={t}>{t}</option>)}
+                {['Menos de 6 meses','6 meses – 1 año','1 – 2 años','2 – 4 años','Más de 4 años'].map(t=><option key={t}>{t}</option>)}
               </select>
-              {(filterArea || filterTenure) && (
-                <button onClick={() => { setFilterArea(''); setFilterTenure('') }}
-                  className="text-xs text-[#E4002B] underline">✕ Quitar</button>
-              )}
+              {(fArea||fTenure) && <button onClick={()=>{setFArea('');setFTenure('')}} style={{ fontSize:11, color:RED, background:'none', border:'none', cursor:'pointer', textDecoration:'underline' }}>✕ Quitar</button>}
             </div>
           </div>
 
           {loading ? (
-            <div className="text-center py-20 text-[#9C8680]">
-              <div className="text-3xl mb-3">📊</div>
-              <p className="text-sm">Cargando datos reales desde Supabase…</p>
+            <div style={{ textAlign:'center', padding:'60px 0', color:T3 }}>
+              <div style={{ fontSize:32, marginBottom:10 }}>📊</div>
+              <p style={{ fontSize:13 }}>Cargando datos desde Supabase…</p>
             </div>
           ) : (
             <>
-              {/* 4 KPIs */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                <KPICard label="Engagement"     value={`${kpis?.engagement || 0}%`}  trend="Score general"            color="#E4002B" pct={kpis?.engagement} />
-                <KPICard label="Favorabilidad"  value={`${kpis?.favorability || 0}%`} trend="Resp. 4–5 sobre total"   color="#FF6B35" pct={kpis?.favorability} />
-                <KPICard label="eNPS"           value={`${kpis?.enps >= 0 ? '+' : ''}${kpis?.enps || 0}`} trend={`Prom. ${kpis?.promotersPct||0}% · Det. ${kpis?.detractorsPct||0}%`} color="#8B5CF6" pct={null} />
-                <RiskCard kpis={kpis} />
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:16 }}>
+                {[
+                  {l:'Engagement',    v:`${kpis?.engagement||0}%`,  tr:'Score general',                          c:RED,      p:kpis?.engagement},
+                  {l:'Favorabilidad', v:`${kpis?.favorability||0}%`,tr:'Resp. 4–5 sobre total',                  c:'#FF6B35',p:kpis?.favorability},
+                  {l:'eNPS',          v:`${kpis?.enps>=0?'+':''}${kpis?.enps||0}`, tr:`Prom.${kpis?.promPct||0}% Det.${kpis?.detPct||0}%`, c:'#8B5CF6',p:null},
+                  {l:'Riesgo Rotación',v:kpis?.engagement>=70?'Bajo':kpis?.engagement>=55?'Medio':'Alto', tr:'Índice ponderado', c:kpis?.engagement>=70?OK:kpis?.engagement>=55?WARN:DANGER, p:null, sem:true, semC:kpis?.engagement>=70?'#DCFCE7;#166534':kpis?.engagement>=55?'#FEF9C3;#92400E':'#FEE2E2;#991B1B'}
+                ].map((k,i)=>(
+                  <div key={i} style={{ ...card(), position:'relative', overflow:'hidden' }}>
+                    <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.c, borderRadius:'12px 12px 0 0' }} />
+                    <div style={{ fontSize:10, color:T3, textTransform:'uppercase', letterSpacing:'0.3px', marginBottom:6 }}>{k.l}</div>
+                    {k.sem
+                      ? <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:99, fontSize:10, fontWeight:700, background:k.semC.split(';')[0], color:k.semC.split(';')[1] }}>● {k.v}</span>
+                      : <span style={{ fontSize:24, fontWeight:700, color:DARK }}>{k.v}</span>
+                    }
+                    <div style={{ fontSize:10, color:T3, marginTop:3 }}>{k.tr}</div>
+                    {k.p!==null && <div style={{ height:3, background:S3, borderRadius:99, marginTop:8, overflow:'hidden' }}><div style={{ height:'100%', width:`${k.p}%`, background:k.c, borderRadius:99 }} /></div>}
+                  </div>
+                ))}
               </div>
 
-              {/* Sentimiento + Radar */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-                <div className="bg-white rounded-xl p-4 shadow-sm">
-                  <p className="text-xs font-semibold mb-3">😊 Sentimiento por dimensión</p>
-                  {(sentiment.length ? sentiment : DIMS.map(d => ({ name: d, favorable:0, neutral:0, unfavorable:0 }))).map(d => (
-                    <div key={d.name} className="mb-2.5">
-                      <div className="flex justify-between text-[10px] mb-1">
-                        <span className="font-medium">{d.name}</span>
-                        <span className="text-[#9C8680]">{d.favorable}% fav · {d.neutral}% neu · {d.unfavorable}% desf.</span>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
+                <div style={card()}>
+                  <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>😊 Sentimiento por dimensión</p>
+                  {(dims.length?dims:DIMS.map(d=>({name:d,favorable:0,neutral:0,unfavorable:0}))).map(d=>(
+                    <div key={d.name} style={{ marginBottom:9 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, marginBottom:3 }}>
+                        <span style={{ fontWeight:600 }}>{d.name}</span>
+                        <span style={{ color:T3 }}>{d.favorable}% · {d.neutral}% · {d.unfavorable}%</span>
                       </div>
-                      <div className="flex h-2 rounded-full overflow-hidden gap-px">
-                        <div style={{ width: `${d.favorable}%`, background: '#16A34A' }} />
-                        <div style={{ width: `${d.neutral}%`,   background: '#D97706' }} />
-                        <div style={{ width: `${d.unfavorable}%`, background: '#DC2626' }} />
+                      <div style={{ display:'flex', height:8, borderRadius:99, overflow:'hidden', gap:1 }}>
+                        <div style={{ width:`${d.favorable}%`, background:OK }} />
+                        <div style={{ width:`${d.neutral}%`, background:WARN }} />
+                        <div style={{ width:`${d.unfavorable}%`, background:DANGER }} />
                       </div>
                     </div>
                   ))}
-                  <div className="flex gap-3 mt-2 pt-2 border-t border-[#E8DDD9]">
-                    {[['#16A34A','Favorable'],['#D97706','Neutral'],['#DC2626','Desfavorable']].map(([c,l]) => (
-                      <div key={l} className="flex items-center gap-1 text-[10px] text-[#5C4A44]">
-                        <div className="w-2.5 h-2.5 rounded-sm" style={{ background: c }} />{l}
+                  <div style={{ display:'flex', gap:12, marginTop:8, paddingTop:8, borderTop:`1px solid ${BD}` }}>
+                    {[[OK,'Favorable'],[WARN,'Neutral'],[DANGER,'Desfavorable']].map(([c,l])=>(
+                      <div key={l} style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color:T2 }}>
+                        <div style={{ width:10, height:10, borderRadius:2, background:c }} />{l}
                       </div>
                     ))}
                   </div>
                 </div>
-
-                <div className="bg-white rounded-xl p-4 shadow-sm">
-                  <p className="text-xs font-semibold mb-3">🕸 Dimensiones de engagement</p>
-                  <RadarChart dims={DIMS} values={dimensions.length ? dimensions.map(d => d.score) : DIMS.map(() => 0)} />
+                <div style={card()}>
+                  <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>🕸 Dimensiones de engagement</p>
+                  <RadarChart dims={DIMS} values={dims.length?dims.map(d=>d.score):DIMS.map(()=>0)} />
                 </div>
               </div>
 
-              {/* Ranking + eNPS */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-                <div className="bg-white rounded-xl p-4 shadow-sm">
-                  <p className="text-xs font-semibold mb-3">
-                    {filterArea ? `📍 Posición: ${filterArea}` : '🏆 Ranking de áreas'}
-                  </p>
-                  {filterArea ? (
-                    <AreaPosition area={filterArea} areas={areas} />
-                  ) : (
-                    areas.length
-                      ? areas.map((a, i) => (
-                          <div key={a.area} className="flex items-center gap-2 mb-2">
-                            <span className="text-xs font-bold text-[#E4002B] w-4">{i+1}</span>
-                            <span className="flex-1 text-xs">{a.area}</span>
-                            <div className="w-20 h-1.5 bg-[#F5F0EE] rounded-full overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${a.score}%`, background: colScore(a.score) }} />
-                            </div>
-                            <span className="text-xs font-semibold w-8 text-right" style={{ color: colScore(a.score) }}>{a.score}%</span>
-                          </div>
-                        ))
-                      : <p className="text-xs text-[#9C8680] text-center py-4">Sin datos aún. Las respuestas aparecerán aquí cuando los colaboradores completen la encuesta.</p>
-                  )}
-                </div>
-
-                <div className="bg-white rounded-xl p-4 shadow-sm">
-                  <p className="text-xs font-semibold mb-3">💬 Distribución eNPS</p>
-                  {[['Promotores (9-10)', kpis?.promotersPct || 0, '#16A34A'],
-                    ['Pasivos (7-8)',      100-(kpis?.promotersPct||0)-(kpis?.detractorsPct||0), '#D97706'],
-                    ['Detractores (0-6)', kpis?.detractorsPct || 0, '#DC2626']].map(([l,v,c]) => (
-                    <div key={l} className="mb-3">
-                      <div className="flex justify-between text-[10px] mb-1">
-                        <span style={{ color: c }} className="font-semibold">{l}</span>
-                        <span className="font-bold">{Math.max(0,v)}%</span>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
+                <div style={card()}>
+                  <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>{fArea?`📍 ${fArea}`:'🏆 Ranking de áreas'}</p>
+                  {fArea ? (
+                    <div>
+                      <div style={{ textAlign:'center', padding:'10px 0' }}>
+                        <p style={{ fontSize:10, color:T3, marginBottom:4 }}>Posición en ranking general</p>
+                        <p style={{ fontSize:36, fontWeight:700, color:RED }}>#{areas.findIndex(a=>a.area===fArea)+1||'?'}</p>
+                        <p style={{ fontSize:11, color:T2 }}>de {areas.length} áreas</p>
                       </div>
-                      <div className="h-2 bg-[#F5F0EE] rounded-full overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${Math.max(0,v)}%`, background: c }} />
+                      <div style={{ background:S2, borderRadius:10, padding:'10px 12px' }}>
+                        <p style={{ fontSize:11, fontWeight:700, color:RED, marginBottom:4 }}>{fArea}</p>
+                        <p style={{ fontSize:22, fontWeight:700, color:colS(areas.find(a=>a.area===fArea)?.score||0) }}>{areas.find(a=>a.area===fArea)?.score||0}%</p>
+                      </div>
+                    </div>
+                  ) : areas.length ? areas.map((a,i)=>(
+                    <div key={a.area} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:7 }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:RED, width:14 }}>{i+1}</span>
+                      <span style={{ flex:1, fontSize:11 }}>{a.area}</span>
+                      <div style={{ width:80, height:5, background:S3, borderRadius:99, overflow:'hidden' }}>
+                        <div style={{ height:'100%', width:`${a.score}%`, background:colS(a.score), borderRadius:99 }} />
+                      </div>
+                      <span style={{ fontSize:11, fontWeight:600, width:28, textAlign:'right', color:colS(a.score) }}>{a.score}%</span>
+                    </div>
+                  )) : <p style={{ fontSize:12, color:T3, textAlign:'center', padding:'20px 0' }}>Sin datos aún.</p>}
+                </div>
+                <div style={card()}>
+                  <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>💬 Distribución eNPS</p>
+                  {[['Promotores (9-10)',kpis?.promPct||0,OK],['Pasivos (7-8)',Math.max(0,100-(kpis?.promPct||0)-(kpis?.detPct||0)),WARN],['Detractores (0-6)',kpis?.detPct||0,DANGER]].map(([l,v,c])=>(
+                    <div key={l} style={{ marginBottom:10 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, marginBottom:3 }}>
+                        <span style={{ fontWeight:600, color:c }}>{l}</span>
+                        <span style={{ fontWeight:700 }}>{v}%</span>
+                      </div>
+                      <div style={{ height:8, background:S3, borderRadius:99, overflow:'hidden' }}>
+                        <div style={{ height:'100%', width:`${v}%`, background:c, borderRadius:99 }} />
                       </div>
                     </div>
                   ))}
-                  <div className="bg-[#FFF8F6] rounded-xl py-3 text-center mt-2">
-                    <p className="text-[10px] text-[#9C8680] mb-1">% Promotores − % Detractores</p>
-                    <p className="text-2xl font-bold" style={{ color: (kpis?.enps||0) >= 0 ? '#16A34A' : '#DC2626' }}>
-                      {(kpis?.enps||0) >= 0 ? '+' : ''}{kpis?.enps || 0}
-                    </p>
+                  <div style={{ background:S2, borderRadius:8, padding:'10px', textAlign:'center', marginTop:8 }}>
+                    <p style={{ fontSize:10, color:T3, marginBottom:2 }}>% Promotores − % Detractores</p>
+                    <p style={{ fontSize:26, fontWeight:700, color:(kpis?.enps||0)>=0?OK:DANGER }}>{(kpis?.enps||0)>=0?'+':''}{kpis?.enps||0}</p>
                   </div>
                 </div>
               </div>
 
-              {/* Fórmulas */}
-              <div className="bg-white rounded-xl p-4 shadow-sm mb-4">
-                <p className="text-xs font-semibold mb-3">🧮 Fórmulas de cálculo</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px] text-[#5C4A44] leading-relaxed">
-                  {[
-                    ['Engagement Score', '((promedio Likert dim.1 − 1) / 4) × 100'],
-                    ['Favorabilidad', '(respuestas 4+5 / total respuestas) × 100'],
-                    ['eNPS', '% Promotores (9-10) − % Detractores (0-6)'],
-                    ['Riesgo Rotación', 'Perm.×0.30 + eNPS×0.25 + Jefe×0.20 + Reconoc.×0.15 + Bien.×0.10']
-                  ].map(([t,f]) => (
-                    <div key={t}>
-                      <strong className="text-[#1A0A0A]">{t}</strong><br/>
-                      <code className="bg-[#F5F0EE] px-1.5 py-0.5 rounded text-[10px] mt-0.5 inline-block">{f}</code>
-                    </div>
+              <div style={card({ marginBottom:14 })}>
+                <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>🧮 Fórmulas de cálculo</p>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, fontSize:11, color:T2, lineHeight:1.7 }}>
+                  {[['Engagement Score','((prom. Likert dim.1 − 1) / 4) × 100'],['Favorabilidad','(resp. 4+5 / total) × 100'],['eNPS','% Promotores (9-10) − % Detractores (0-6)'],['Riesgo Rotación','Perm.×0.30 + eNPS×0.25 + Jefe×0.20 + Recon.×0.15 + Bien.×0.10']].map(([t,f])=>(
+                    <div key={t}><strong style={{ color:DARK }}>{t}</strong><br/><code style={{ background:S3, padding:'2px 5px', borderRadius:4, fontSize:10 }}>{f}</code></div>
                   ))}
                 </div>
               </div>
@@ -184,228 +274,112 @@ export default function Dashboard() {
         </div>
       )}
 
-      {activeTab === 'ia' && <IATab />}
-    </div>
-  )
-}
+      {tab==='voz' && (
+        <div style={{ padding:16, maxWidth:1000, margin:'0 auto' }}>
+          <h2 style={{ fontSize:18, fontWeight:700, color:DARK, marginBottom:4 }}>💬 Voz del Empleado</h2>
+          <p style={{ fontSize:11, color:T3, marginBottom:16 }}>Análisis de respuestas abiertas · Palabras más frecuentes de los colaboradores</p>
 
-function KPICard({ label, value, trend, color, pct }) {
-  return (
-    <div className="bg-white rounded-xl p-3.5 shadow-sm relative overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 h-1 rounded-t-xl" style={{ background: color }} />
-      <p className="text-[10px] text-[#9C8680] uppercase tracking-wide mb-1.5">{label}</p>
-      <p className="text-2xl font-bold text-[#1A0A0A]">{value}</p>
-      <p className="text-[10px] text-[#9C8680] mt-0.5">{trend}</p>
-      {pct !== null && (
-        <div className="h-1 bg-[#F5F0EE] rounded-full mt-2 overflow-hidden">
-          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+          {loadingWords ? (
+            <div style={{ textAlign:'center', padding:'40px 0', color:T3 }}>
+              <div style={{ fontSize:28, marginBottom:8 }}>💬</div>
+              <p style={{ fontSize:13 }}>Analizando respuestas…</p>
+            </div>
+          ) : wordData.length === 0 ? (
+            <div style={card({ textAlign:'center', padding:'40px' })}>
+              <div style={{ fontSize:32, marginBottom:10 }}>📝</div>
+              <p style={{ fontSize:14, color:T2, marginBottom:6 }}>Sin respuestas abiertas aún</p>
+              <p style={{ fontSize:12, color:T3 }}>Las palabras clave aparecerán aquí cuando los colaboradores respondan las preguntas abiertas de la encuesta.</p>
+            </div>
+          ) : (
+            <>
+              <div style={card({ marginBottom:14 })}>
+                <p style={{ fontSize:12, fontWeight:600, marginBottom:4 }}>☁️ Nube de conceptos clave</p>
+                <p style={{ fontSize:11, color:T3, marginBottom:14 }}>Tamaño = frecuencia de mención · {wordData.reduce((s,w)=>s+w.count,0)} menciones totales analizadas</p>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center', justifyContent:'center', padding:'10px 0' }}>
+                  {wordData.map((item, i) => {
+                    const ratio = (item.count - minCount) / Math.max(maxCount - minCount, 1)
+                    const fontSize = Math.round(11 + ratio * 20)
+                    const color = WORD_COLORS[i % WORD_COLORS.length]
+                    return (
+                      <span key={item.word} title={`${item.count} menciones`} style={{ fontSize, fontWeight: ratio > 0.5 ? 700 : 500, color, background:`${color}15`, padding:'4px 10px', borderRadius:99, cursor:'default', transition:'transform 0.2s' }}
+                        onMouseEnter={e=>e.target.style.transform='scale(1.1)'}
+                        onMouseLeave={e=>e.target.style.transform='scale(1)'}>
+                        {item.word}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
+                <div style={card()}>
+                  <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>📊 Palabras más mencionadas</p>
+                  {wordData.slice(0,15).map((item,i) => (
+                    <div key={item.word} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:7 }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:RED, width:18 }}>{i+1}</span>
+                      <span style={{ flex:1, fontSize:11, textTransform:'capitalize' }}>{item.word}</span>
+                      <div style={{ width:80, height:5, background:S3, borderRadius:99, overflow:'hidden' }}>
+                        <div style={{ height:'100%', width:`${(item.count/maxCount)*100}%`, background:WORD_COLORS[i%WORD_COLORS.length], borderRadius:99 }} />
+                      </div>
+                      <span style={{ fontSize:10, fontWeight:600, color:T3, width:24, textAlign:'right' }}>{item.count}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={card()}>
+                  <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>📋 Resumen del análisis</p>
+                  <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                    <div style={{ background:S2, borderRadius:10, padding:'12px 14px' }}>
+                      <p style={{ fontSize:10, color:T3, marginBottom:3 }}>TOTAL RESPUESTAS ABIERTAS</p>
+                      <p style={{ fontSize:22, fontWeight:700, color:DARK }}>{wordData.reduce((s,w)=>s+w.count,0)}</p>
+                      <p style={{ fontSize:10, color:T3 }}>menciones de palabras clave</p>
+                    </div>
+                    <div style={{ background:S2, borderRadius:10, padding:'12px 14px' }}>
+                      <p style={{ fontSize:10, color:T3, marginBottom:3 }}>PALABRA MÁS MENCIONADA</p>
+                      <p style={{ fontSize:18, fontWeight:700, color:RED, textTransform:'capitalize' }}>{wordData[0]?.word || '—'}</p>
+                      <p style={{ fontSize:10, color:T3 }}>{wordData[0]?.count || 0} veces</p>
+                    </div>
+                    <div style={{ background:S2, borderRadius:10, padding:'12px 14px' }}>
+                      <p style={{ fontSize:10, color:T3, marginBottom:6 }}>TOP 5 CONCEPTOS</p>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+                        {wordData.slice(0,5).map((item,i)=>(
+                          <span key={item.word} style={{ padding:'3px 9px', borderRadius:99, fontSize:11, fontWeight:600, background:`${WORD_COLORS[i]}20`, color:WORD_COLORS[i] }}>{item.word}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display:'flex', justifyContent:'center' }}>
+                <button onClick={loadWords} style={{ padding:'8px 20px', background:S, border:`1.5px solid ${BD}`, borderRadius:99, fontSize:12, color:T2, cursor:'pointer' }}>
+                  🔄 Actualizar análisis
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function RiskCard({ kpis }) {
-  const eng  = kpis?.engagement  || 50
-  const risk = eng >= 70 ? { label: 'Bajo', cls: 'bg-[#DCFCE7] text-[#166534]' }
-             : eng >= 55 ? { label: 'Medio', cls: 'bg-[#FEF9C3] text-[#92400E]' }
-                         : { label: 'Alto', cls: 'bg-[#FEE2E2] text-[#991B1B]' }
-  return (
-    <div className="bg-white rounded-xl p-3.5 shadow-sm relative overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 h-1 rounded-t-xl bg-[#D97706]" />
-      <p className="text-[10px] text-[#9C8680] uppercase tracking-wide mb-1.5">Riesgo Rotación</p>
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${risk.cls}`}>
-        ● {risk.label}
-      </span>
-      <p className="text-[10px] text-[#9C8680] mt-1.5">Índice ponderado</p>
-    </div>
-  )
-}
-
-function AreaPosition({ area, areas }) {
-  const pos   = areas.findIndex(a => a.area === area) + 1
-  const score = areas.find(a => a.area === area)?.score || 0
-  return (
-    <div>
-      <div className="text-center py-3">
-        <p className="text-[11px] text-[#9C8680] mb-1">Posición en ranking general</p>
-        <p className="text-4xl font-bold text-[#E4002B]">#{pos || '?'}</p>
-        <p className="text-xs text-[#5C4A44]">de {areas.length} áreas</p>
-      </div>
-      <div className="bg-[#FFF8F6] rounded-xl p-3 mt-2">
-        <p className="text-xs font-bold text-[#E4002B] mb-2">{area}</p>
-        <p className="text-2xl font-bold" style={{ color: colScore(score) }}>{score}%</p>
-        <div className="h-1.5 bg-[#F5F0EE] rounded-full mt-2 overflow-hidden">
-          <div className="h-full rounded-full" style={{ width: `${score}%`, background: colScore(score) }} />
-        </div>
-        <p className="text-[10px] text-[#9C8680] mt-1">Score de engagement</p>
-      </div>
-    </div>
-  )
-}
-
 function RadarChart({ dims, values }) {
-  const r = 80, n = dims.length
-  const pts = values.map((v, i) => {
-    const a = (i / n) * Math.PI * 2 - Math.PI / 2
-    return `${r * (v/100) * Math.cos(a)},${r * (v/100) * Math.sin(a)}`
-  }).join(' ')
-
+  const r=80, n=dims.length
+  const pts = values.map((v,i)=>{ const a=(i/n)*Math.PI*2-Math.PI/2; return `${r*(v/100)*Math.cos(a)},${r*(v/100)*Math.sin(a)}` }).join(' ')
   return (
-    <svg viewBox="0 0 220 200" className="w-full">
+    <svg viewBox="0 0 220 200" style={{ width:'100%' }}>
       <g transform="translate(110,100)">
-        {[0.25,0.5,0.75,1].map(f => {
-          const poly = dims.map((_,i) => {
-            const a = (i/n)*Math.PI*2 - Math.PI/2
-            return `${r*f*Math.cos(a)},${r*f*Math.sin(a)}`
-          }).join(' ')
-          return <polygon key={f} points={poly} fill="none" stroke="#E8DDD9" strokeWidth="0.5" />
+        {[0.25,0.5,0.75,1].map(f=>{
+          const p=dims.map((_,i)=>{ const a=(i/n)*Math.PI*2-Math.PI/2; return `${r*f*Math.cos(a)},${r*f*Math.sin(a)}` }).join(' ')
+          return <polygon key={f} points={p} fill="none" stroke="#E8DDD9" strokeWidth="0.5" />
         })}
-        {dims.map((_,i) => {
-          const a = (i/n)*Math.PI*2 - Math.PI/2
-          const lx = (r+14)*Math.cos(a), ly = (r+14)*Math.sin(a)
-          return (
-            <g key={i}>
-              <line x1="0" y1="0" x2={r*Math.cos(a)} y2={r*Math.sin(a)} stroke="#E8DDD9" strokeWidth="0.5" />
-              <text x={lx} y={ly+3} textAnchor="middle" fontSize="7" fill="#9C8680">{dims[i]}</text>
-            </g>
-          )
+        {dims.map((_,i)=>{ const a=(i/n)*Math.PI*2-Math.PI/2; const lx=(r+14)*Math.cos(a),ly=(r+14)*Math.sin(a)
+          return <g key={i}><line x1="0" y1="0" x2={r*Math.cos(a)} y2={r*Math.sin(a)} stroke="#E8DDD9" strokeWidth="0.5"/><text x={lx} y={ly+3} textAnchor="middle" fontSize="7" fill="#9C8680">{dims[i]}</text></g>
         })}
         <polygon points={pts} fill="rgba(228,0,43,0.12)" stroke="#E4002B" strokeWidth="2" />
-        {values.map((v,i) => {
-          const a = (i/n)*Math.PI*2 - Math.PI/2
-          return <circle key={i} cx={r*(v/100)*Math.cos(a)} cy={r*(v/100)*Math.sin(a)} r="3" fill="#E4002B" />
-        })}
+        {values.map((v,i)=>{ const a=(i/n)*Math.PI*2-Math.PI/2; return <circle key={i} cx={r*(v/100)*Math.cos(a)} cy={r*(v/100)*Math.sin(a)} r="3" fill="#E4002B" /> })}
       </g>
     </svg>
-  )
-}
-
-function IATab() {
-  const [selected, setSelected] = useState(new Set())
-  const [result,   setResult]   = useState(null)
-  const [loading,  setLoading]  = useState(false)
-
-  const OPEN_QS = [
-    { id: 1, dim: 'Engagement',    q: '¿Qué es lo que más te hace sentirte valorado/a e incluido/a en KFC?' },
-    { id: 3, dim: 'Recursos',      q: '¿Qué habilidad adicional te gustaría desarrollar el próximo año?' },
-    { id: 4, dim: 'Apoyo del Jefe', q: '¿De qué manera el liderazgo de tu jefe facilita o dificulta tu crecimiento?' },
-    { id: 5, dim: 'Bienestar',     q: '¿Qué podría hacer KFC para apoyar mejor tu bienestar emocional?' },
-    { id: 7, dim: 'Reconocimiento', q: '¿De qué manera te gustaría ser reconocido/a con mayor frecuencia?' },
-    { id: 8, dim: 'Permanencia',   q: 'Si pudieras proponer UNA sola acción para mejorar tu experiencia en KFC, ¿cuál sería?' },
-  ]
-
-  const toggle = (id) => {
-    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
-  }
-
-  const analyze = async () => {
-    if (!selected.size) return
-    setLoading(true)
-    setResult(null)
-    try {
-      // Obtener respuestas reales de Supabase
-      const { data: rows } = await import('../lib/supabase.js').then(m =>
-        m.supabase.from('responses')
-          .select('section_id, open_text')
-          .in('section_id', [...selected])
-          .eq('question_type', 'open')
-          .not('open_text', 'is', null)
-      )
-
-      if (!rows?.length) {
-        setResult({ empty: true })
-        setLoading(false)
-        return
-      }
-
-      const textBlock = rows.map(r => `"${r.open_text}"`).join('\n')
-      const apiKey = import.meta.env.VITE_ANTHROPIC_KEY
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514', max_tokens: 1500,
-          system: 'Eres especialista en People Analytics para KFC Colombia. Analiza respuestas abiertas de la encuesta KFC Listen. Las dimensiones son: Engagement, Pertenencia, Recursos, Apoyo del Jefe, Bienestar, Expectativas, Reconocimiento, Permanencia. Responde SOLO en JSON válido sin markdown.',
-          messages: [{ role: 'user', content: `Analiza estas ${rows.length} respuestas reales de colaboradores:\n\n${textBlock}\n\nJSON exacto:\n{"sentimiento":{"positivo":0,"neutral":0,"negativo":0},"hallazgo_principal":"","clusters_favorables":[{"titulo":"","comentarios":[""]}],"clusters_desfavorables":[{"titulo":"","comentarios":[""]}],"recomendacion":""}` }]
-        })
-      })
-      const data = await response.json()
-      const parsed = JSON.parse(data.content[0].text)
-      setResult({ ...parsed, total: rows.length })
-    } catch (e) {
-      setResult({ error: e.message })
-    }
-    setLoading(false)
-  }
-
-  return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-[#E4002B] to-[#FF6B35] text-white px-3 py-1 rounded-full text-xs font-bold mb-2">✨ Powered by Claude AI</div>
-      <h2 className="text-lg font-bold text-[#1A0A0A] mb-1">Voz del Empleado · Análisis con IA</h2>
-      <p className="text-xs text-[#9C8680] mb-4">Selecciona las preguntas abiertas que quieres analizar. Claude procesará las respuestas reales guardadas en Supabase.</p>
-
-      {/* Selector de preguntas */}
-      <div className="bg-gradient-to-br from-[#1A0A0A] to-[#3D0C0C] rounded-xl p-4 mb-4">
-        <p className="text-white text-sm font-bold mb-1">🤖 Analizar respuestas con Claude</p>
-        <p className="text-white/50 text-xs mb-3">Selecciona una o varias preguntas abiertas de la encuesta</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-          {OPEN_QS.map(q => (
-            <div key={q.id} onClick={() => toggle(q.id)}
-              className={`p-2.5 rounded-lg border cursor-pointer transition-all
-                ${selected.has(q.id) ? 'bg-[#E4002B]/20 border-[#E4002B]' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}>
-              <p className="text-[10px] text-white/50 uppercase mb-1">{q.dim}</p>
-              <p className="text-xs text-white/80 leading-snug">{q.q.substring(0,60)}…</p>
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={analyze} disabled={!selected.size || loading}
-            className="px-4 py-2 bg-[#E4002B] text-white font-bold text-xs rounded-lg disabled:bg-white/15 disabled:cursor-not-allowed">
-            {loading ? 'Analizando…' : 'Analizar selección →'}
-          </button>
-          <span className="text-white/50 text-xs">{selected.size === 0 ? 'Selecciona al menos una' : `${selected.size} seleccionada${selected.size>1?'s':''}`}</span>
-        </div>
-
-        {/* Resultado IA */}
-        {result && !result.empty && !result.error && (
-          <div className="mt-3 p-3 bg-white/6 rounded-xl text-xs text-white/80 leading-relaxed">
-            <div className="mb-2">
-              <span className="text-white/40 uppercase text-[10px]">Sentimiento · </span>
-              <span className="text-[#16A34A] font-semibold">{result.sentimiento?.positivo}% pos</span>
-              <span className="mx-1 text-white/30">·</span>
-              <span className="text-[#D97706] font-semibold">{result.sentimiento?.neutral}% neu</span>
-              <span className="mx-1 text-white/30">·</span>
-              <span className="text-[#DC2626] font-semibold">{result.sentimiento?.negativo}% neg</span>
-            </div>
-            <div className="p-2 bg-white/5 rounded-lg mb-2">
-              <p className="text-[10px] text-white/40 mb-1">HALLAZGO PRINCIPAL</p>
-              <p>{result.hallazgo_principal}</p>
-            </div>
-            <div className="p-2 bg-[#E4002B]/15 rounded-lg border-l-2 border-[#E4002B]">
-              <p className="text-[10px] text-white/40 mb-1">RECOMENDACIÓN PARA RRHH</p>
-              <p className="font-semibold">{result.recomendacion}</p>
-            </div>
-            <p className="text-white/30 text-[10px] mt-2">Basado en {result.total} respuestas reales de colaboradores</p>
-          </div>
-        )}
-        {result?.empty && <p className="mt-3 text-white/40 text-xs">No hay respuestas abiertas guardadas aún para las secciones seleccionadas.</p>}
-        {result?.error && <p className="mt-3 text-[#FF6B35] text-xs">⚠️ Error: {result.error}</p>}
-      </div>
-
-      {/* Clusters estáticos demo */}
-      <div className="bg-white rounded-xl p-4 shadow-sm mb-4">
-        <p className="text-xs font-semibold mb-3">🔗 Agrupación semántica · se genera con tus respuestas reales</p>
-        <div className="bg-[#F0FDF4] border-l-4 border-[#16A34A] rounded-r-xl p-3 mb-3">
-          <p className="text-xs font-bold text-[#166534] mb-1">✅ Comentarios FAVORABLES</p>
-          <p className="text-[11px] text-[#5C4A44]">Los clusters favorables aparecerán aquí una vez Claude analice las respuestas reales de los colaboradores.</p>
-        </div>
-        <div className="bg-[#FEF2F2] border-l-4 border-[#DC2626] rounded-r-xl p-3">
-          <p className="text-xs font-bold text-[#991B1B] mb-1">⚠️ Comentarios DESFAVORABLES</p>
-          <p className="text-[11px] text-[#5C4A44]">Los clusters desfavorables aparecerán aquí una vez Claude analice las respuestas reales de los colaboradores.</p>
-        </div>
-      </div>
-    </div>
   )
 }
