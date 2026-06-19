@@ -310,7 +310,6 @@ export default function Dashboard() {
                     <div key={t}><strong style={{ color:DARK }}>{t}</strong><br/><code style={{ background:S3, padding:'2px 5px', borderRadius:4, fontSize:10 }}>{f}</code></div>
                   ))}
                 </div>
-              </div>
           )}
         </div>
       )}
