@@ -7,6 +7,7 @@ const OK='#16A34A', WARN='#D97706', DANGER='#DC2626'
 const DIMS = ['Engagement','Pertenencia','Recursos','Apoyo del Jefe','Bienestar','Expectativas','Reconocimiento','Permanencia']
 const AREAS_F = ['Operaciones','RRHH','Finanzas','Sistemas','Planta Bogotá - Operativo','Plantas CAR','Planta Medellín - Operativo','Domicilios','Auditoría','Mercadeo']
 const colS = v => v>=70 ? OK : v>=55 ? WARN : DANGER
+
 const OPEN_QUESTIONS = [
   { section: 1, dim:'Engagement',      label:'¿Qué te hace sentir valorado/a e incluido/a?' },
   { section: 3, dim:'Recursos',        label:'¿Qué habilidad te gustaría desarrollar?' },
@@ -37,7 +38,9 @@ function getTopWords(texts, topN = 40) {
 
 function card(extra={}) { return { background:S, borderRadius:12, padding:16, boxShadow:'0 2px 10px rgba(228,0,43,0.07)', ...extra } }
 
-export default function Dashboard({ setUser }) {
+const WORD_COLORS = [RED,'#FF6B35','#8B5CF6','#0EA5E9',OK,WARN,'#EC4899','#14B8A6']
+
+export default function Dashboard() {
   const [tab, setTab]         = useState('dash')
   const [fArea, setFArea]     = useState('')
   const [fTenure, setFTenure] = useState('')
@@ -57,12 +60,23 @@ export default function Dashboard({ setUser }) {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      let q = supabase.from('responses')
-        .select('section_id,question_index,question_type,likert_value,nps_value,survey_sessions!inner(area,tenure_range,completed)')
-        .eq('survey_sessions.completed', true)
-      if (fArea)   q = q.eq('survey_sessions.area', fArea)
-      if (fTenure) q = q.eq('survey_sessions.tenure_range', fTenure)
-      const { data: rows } = await q
+      let sessionQuery = supabase.from('survey_sessions').select('id').eq('completed', true)
+      if (fArea)   sessionQuery = sessionQuery.eq('area', fArea)
+      if (fTenure) sessionQuery = sessionQuery.eq('tenure_range', fTenure)
+      const { data: sessionRows } = await sessionQuery
+      const sessionIds = (sessionRows || []).map(s => s.id)
+
+      if (sessionIds.length === 0) {
+        setKpis({ engagement:0, favorability:0, enps:0, total:0, promPct:0, detPct:0 })
+        setDims(DIMS.map(name => ({ name, score:0, favorable:0, neutral:0, unfavorable:0 })))
+        setLoading(false)
+        return
+      }
+
+      const { data: rows } = await supabase
+        .from('responses')
+        .select('section_id,question_index,question_type,likert_value,nps_value')
+        .in('session_id', sessionIds)
 
       const lk1   = (rows||[]).filter(r=>r.question_type==='likert'&&r.section_id===1&&r.likert_value)
       const lkAll = (rows||[]).filter(r=>r.question_type==='likert'&&r.likert_value)
@@ -71,13 +85,12 @@ export default function Dashboard({ setUser }) {
       const prom  = npsR.filter(r=>r.nps_value>=9).length
       const det   = npsR.filter(r=>r.nps_value<=6).length
       const engAvg = lk1.length ? lk1.reduce((s,r)=>s+r.likert_value,0)/lk1.length : 0
-      const { count:total } = await supabase.from('survey_sessions').select('*',{count:'exact',head:true}).eq('completed',true)
 
       setKpis({
-        engagement:   Math.round(((engAvg-1)/4)*100),
+        engagement:   lk1.length ? Math.round(((engAvg-1)/4)*100) : 0,
         favorability: lkAll.length ? Math.round((lkFav.length/lkAll.length)*100) : 0,
         enps:         npsR.length  ? Math.round(((prom-det)/npsR.length)*100) : 0,
-        total:        total||0,
+        total:        sessionIds.length,
         promPct:      npsR.length  ? Math.round((prom/npsR.length)*100) : 0,
         detPct:       npsR.length  ? Math.round((det/npsR.length)*100)  : 0,
       })
@@ -122,11 +135,11 @@ export default function Dashboard({ setUser }) {
       if (fArea) q = q.eq('survey_sessions.area', fArea)
       const { data } = await q
       const texts = (data||[]).map(r=>r.open_text).filter(Boolean)
-      const words = getTopWords(texts, 40)
-      setWordData(words)
+      setWordData(getTopWords(texts, 40))
     } catch(e){ console.error(e) }
     setLoadingWords(false)
   }, [fArea])
+
   const loadQWords = useCallback(async () => {
     if (!selectedQ) return
     setLoadingQWords(true)
@@ -146,15 +159,13 @@ export default function Dashboard({ setUser }) {
     setLoadingQWords(false)
   }, [selectedQ, fArea])
 
-  useEffect(() => { loadQWords() }, [loadQWords])
-
   useEffect(()=>{ loadData(); loadWords() }, [loadData, loadWords])
+  useEffect(()=>{ loadQWords() }, [loadQWords])
 
   const navBtn = (id,label) => (
     <button onClick={()=>setTab(id)} style={{ padding:'5px 13px', borderRadius:7, border:'none', background: tab===id ? 'rgba(228,0,43,0.25)' : 'transparent', color: tab===id ? '#fff' : 'rgba(255,255,255,0.5)', fontSize:12, fontWeight:600, cursor:'pointer' }}>{label}</button>
   )
 
-  const WORD_COLORS = [RED,'#FF6B35','#8B5CF6','#0EA5E9',OK,WARN,'#EC4899','#14B8A6']
   const maxCount = wordData.length ? wordData[0].count : 1
   const minCount = wordData.length ? wordData[wordData.length-1].count : 1
 
@@ -169,7 +180,6 @@ export default function Dashboard({ setUser }) {
           <button onClick={logout} style={{ marginLeft:8, background:'transparent', border:'none', color:'rgba(255,255,255,0.4)', fontSize:12, cursor:'pointer' }}>Salir</button>
         </div>
       </nav>
-
       {tab==='dash' && (
         <div style={{ padding:16, maxWidth:1000, margin:'0 auto' }}>
           <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:16 }}>
@@ -301,12 +311,10 @@ export default function Dashboard({ setUser }) {
                   ))}
                 </div>
               </div>
-            </>
           )}
         </div>
       )}
-      
-{tab==='voz' && (
+      {tab==='voz' && (
         <div style={{ padding:16, maxWidth:1000, margin:'0 auto' }}>
           <h2 style={{ fontSize:18, fontWeight:700, color:DARK, marginBottom:4 }}>💬 Voz del Empleado</h2>
           <p style={{ fontSize:11, color:T3, marginBottom:16 }}>Análisis de respuestas abiertas · Palabras más frecuentes de los colaboradores</p>
@@ -431,6 +439,9 @@ export default function Dashboard({ setUser }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
 
 function RadarChart({ dims, values }) {
   const r=80, n=dims.length
