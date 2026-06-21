@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase.js'
 const RED='#E4002B', DARK='#1A0A0A', WARM='#FFF5F0', S='#fff', S2='#FFF8F6', S3='#F5F0EE'
 const BD='#E8DDD9', T2='#5C4A44', T3='#9C8680'
 const OK='#16A34A', WARN='#D97706', DANGER='#DC2626'
-const DIMS = ['Engagement','Pertenencia','Recursos','Apoyo del Jefe','Bienestar','Expectativas','Reconocimiento','Permanencia']
+const DIMS = ['Engagement','Pertenencia','Recursos','Apoyo del Jefe','Bienestar','Expectativas','Reconocimiento']
 const AREAS_F = ['Operaciones','RRHH','Finanzas','Sistemas','Planta Bogotá - Operativo','Plantas CAR','Planta Medellín - Operativo','Domicilios','Auditoría','Mercadeo']
 const colS = v => v>=70 ? OK : v>=55 ? WARN : DANGER
 
@@ -79,6 +79,30 @@ function KPICards(props) {
         <div style={{ fontSize:10, color:T3, textTransform:'uppercase', letterSpacing:'0.3px', marginBottom:6 }}>Riesgo Rotación</div>
         <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:99, fontSize:10, fontWeight:700, background:riskBg, color:riskText }}>● {riskLabel}</span>
         <div style={{ fontSize:10, color:T3, marginTop:3 }}>Índice ponderado</div>
+      </div>
+    </div>
+  )
+}
+
+function PermanenceCard(props) {
+  const perm = props.perm || { yesPct: 0, noPct: 0, total: 0 }
+  return (
+    <div style={card()}>
+      <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>🔄 Intención de Permanencia</p>
+      <p style={{ fontSize:10, color:T3, marginBottom:12 }}>¿Te gustaría continuar trabajando en KFC? · {perm.total} respuestas</p>
+      <div style={{ display:'flex', gap:10 }}>
+        <div style={{ flex:1, background:'#F0FDF4', borderRadius:10, padding:'14px', textAlign:'center' }}>
+          <p style={{ fontSize:26, fontWeight:700, color:OK }}>{perm.yesPct}%</p>
+          <p style={{ fontSize:11, color:T2, fontWeight:600 }}>Sí, quiere quedarse</p>
+        </div>
+        <div style={{ flex:1, background:'#FEF2F2', borderRadius:10, padding:'14px', textAlign:'center' }}>
+          <p style={{ fontSize:26, fontWeight:700, color:DANGER }}>{perm.noPct}%</p>
+          <p style={{ fontSize:11, color:T2, fontWeight:600 }}>No, no se ve quedándose</p>
+        </div>
+      </div>
+      <div style={{ display:'flex', height:10, borderRadius:99, overflow:'hidden', marginTop:12, gap:1 }}>
+        <div style={{ width:perm.yesPct+'%', background:OK }} />
+        <div style={{ width:perm.noPct+'%', background:DANGER }} />
       </div>
     </div>
   )
@@ -217,7 +241,7 @@ function FormulasCard() {
 function DashTab(props) {
   const fArea = props.fArea, fTenure = props.fTenure
   const setFArea = props.setFArea, setFTenure = props.setFTenure
-  const loading = props.loading, kpis = props.kpis, dims = props.dims, areas = props.areas
+  const loading = props.loading, kpis = props.kpis, dims = props.dims, areas = props.areas, perm = props.perm
 
   return (
     <div style={{ padding:16, maxWidth:1000, margin:'0 auto' }}>
@@ -260,6 +284,10 @@ function DashTab(props) {
             <RankingCard fArea={fArea} areas={areas} />
             <ENPSCard kpis={kpis} />
           </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
+            <PermanenceCard perm={perm} />
+            <div></div>
+          </div>
           <FormulasCard />
         </div>
       )}
@@ -268,135 +296,77 @@ function DashTab(props) {
 }
 
 function VozTab(props) {
+  const fArea = props.fArea
   const selectedQ = props.selectedQ, setSelectedQ = props.setSelectedQ
   const qWordData = props.qWordData, loadingQWords = props.loadingQWords, qResponseCount = props.qResponseCount
-  const wordData = props.wordData, loadingWords = props.loadingWords, loadWords = props.loadWords
-  const maxCount = wordData.length ? wordData[0].count : 1
-  const minCount = wordData.length ? wordData[wordData.length-1].count : 1
 
   return (
     <div style={{ padding:16, maxWidth:1000, margin:'0 auto' }}>
       <h2 style={{ fontSize:18, fontWeight:700, color:DARK, marginBottom:4 }}>💬 Voz del Empleado</h2>
-      <p style={{ fontSize:11, color:T3, marginBottom:16 }}>Análisis de respuestas abiertas · Palabras más frecuentes de los colaboradores</p>
+      <p style={{ fontSize:11, color:T3, marginBottom:4 }}>Análisis de respuestas abiertas · Palabras más frecuentes de los colaboradores</p>
+      {fArea ? (
+        <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#FFF0EF', border:'1px solid #FECDD3', borderRadius:99, padding:'4px 12px', marginBottom:14, fontSize:11, color:RED, fontWeight:600 }}>
+          📍 Filtrando por: {fArea}
+        </div>
+      ) : (
+        <div style={{ marginBottom:14, fontSize:11, color:T3 }}>Mostrando todas las áreas · usa el filtro de área en la pestaña Dashboard para acotar</div>
+      )}
 
       <div style={card({ marginBottom:14 })}>
-        <p style={{ fontSize:12, fontWeight:600, marginBottom:10 }}>🔍 Ver nube por pregunta específica</p>
+        <p style={{ fontSize:12, fontWeight:600, marginBottom:10 }}>🔍 Selecciona una pregunta abierta</p>
         <select value={selectedQ} onChange={function(e){ setSelectedQ(e.target.value) }}
           style={{ width:'100%', padding:'10px 12px', border:'1.5px solid '+BD, borderRadius:10, fontSize:12, color:T2, background:S, outline:'none', cursor:'pointer' }}>
-          <option value="">Todas las preguntas (vista general)</option>
+          <option value="">— Elige una pregunta —</option>
           {OPEN_QUESTIONS.map(function(q) {
             return <option key={q.section} value={q.section}>{q.dim} — {q.label}</option>
           })}
         </select>
-        {selectedQ ? (
-          <div style={{ marginTop:14 }}>
-            {loadingQWords ? (
-              <div style={{ textAlign:'center', padding:'30px 0', color:T3 }}>
-                <p style={{ fontSize:12 }}>Analizando esta pregunta…</p>
-              </div>
-            ) : qWordData.length === 0 ? (
-              <p style={{ fontSize:12, color:T3, textAlign:'center', padding:'20px 0' }}>Sin respuestas todavía para esta pregunta.</p>
-            ) : (
-              <div>
-                <p style={{ fontSize:11, color:T3, marginBottom:10 }}>{qWordData.reduce(function(s,w){return s+w.count},0)} menciones · {qResponseCount} respuestas a esta pregunta</p>
-                <div style={{ display:'flex', flexWrap:'wrap', gap:7, alignItems:'center', justifyContent:'center', padding:'10px 0', background:S2, borderRadius:10 }}>
-                  {qWordData.map(function(item, i) {
-                    const qMax = qWordData[0] ? qWordData[0].count : 1
-                    const qMin = qWordData[qWordData.length-1] ? qWordData[qWordData.length-1].count : 1
-                    const ratio = (item.count - qMin) / Math.max(qMax - qMin, 1)
-                    const fontSize = Math.round(11 + ratio * 18)
-                    const color = WORD_COLORS[i % WORD_COLORS.length]
-                    return (
-                      <span key={item.word} title={item.count+' menciones'} style={{ fontSize:fontSize, fontWeight: ratio > 0.5 ? 700 : 500, color:color, background:color+'15', padding:'4px 10px', borderRadius:99 }}>
-                        {item.word}
-                      </span>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : null}
-      </div>
 
-      {loadingWords ? (
-        <div style={{ textAlign:'center', padding:'40px 0', color:T3 }}>
-          <div style={{ fontSize:28, marginBottom:8 }}>💬</div>
-          <p style={{ fontSize:13 }}>Analizando respuestas…</p>
-        </div>
-      ) : wordData.length === 0 ? (
-        <div style={card({ textAlign:'center', padding:'40px' })}>
-          <div style={{ fontSize:32, marginBottom:10 }}>📝</div>
-          <p style={{ fontSize:14, color:T2, marginBottom:6 }}>Sin respuestas abiertas aún</p>
-          <p style={{ fontSize:12, color:T3 }}>Las palabras clave aparecerán aquí cuando los colaboradores respondan las preguntas abiertas.</p>
-        </div>
-      ) : (
-        <div>
-          <div style={card({ marginBottom:14 })}>
-            <p style={{ fontSize:12, fontWeight:600, marginBottom:4 }}>☁️ Nube general · todas las preguntas</p>
-            <p style={{ fontSize:11, color:T3, marginBottom:14 }}>Tamaño = frecuencia · {wordData.reduce(function(s,w){return s+w.count},0)} menciones totales</p>
-            <div style={{ display:'flex', flexWrap:'wrap', gap:8, alignItems:'center', justifyContent:'center', padding:'10px 0' }}>
-              {wordData.map(function(item, i) {
-                const ratio = (item.count - minCount) / Math.max(maxCount - minCount, 1)
-                const fontSize = Math.round(11 + ratio * 20)
+        {!selectedQ ? (
+          <p style={{ fontSize:12, color:T3, textAlign:'center', padding:'24px 0' }}>Elige una pregunta arriba para ver su nube de palabras.</p>
+        ) : loadingQWords ? (
+          <div style={{ textAlign:'center', padding:'30px 0', color:T3 }}>
+            <p style={{ fontSize:12 }}>Analizando esta pregunta…</p>
+          </div>
+        ) : qWordData.length === 0 ? (
+          <p style={{ fontSize:12, color:T3, textAlign:'center', padding:'20px 0' }}>Sin respuestas todavía para esta pregunta{fArea ? ' en '+fArea : ''}.</p>
+        ) : (
+          <div style={{ marginTop:14 }}>
+            <p style={{ fontSize:11, color:T3, marginBottom:10 }}>{qWordData.reduce(function(s,w){return s+w.count},0)} menciones · {qResponseCount} respuestas a esta pregunta</p>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:7, alignItems:'center', justifyContent:'center', padding:'16px', background:S2, borderRadius:10 }}>
+              {qWordData.map(function(item, i) {
+                const qMax = qWordData[0] ? qWordData[0].count : 1
+                const qMin = qWordData[qWordData.length-1] ? qWordData[qWordData.length-1].count : 1
+                const ratio = (item.count - qMin) / Math.max(qMax - qMin, 1)
+                const fontSize = Math.round(12 + ratio * 22)
                 const color = WORD_COLORS[i % WORD_COLORS.length]
                 return (
-                  <span key={item.word} title={item.count+' menciones'} style={{ fontSize:fontSize, fontWeight: ratio > 0.5 ? 700 : 500, color:color, background:color+'15', padding:'4px 10px', borderRadius:99, cursor:'default' }}>
+                  <span key={item.word} title={item.count+' menciones'} style={{ fontSize:fontSize, fontWeight: ratio > 0.5 ? 700 : 500, color:color, background:color+'15', padding:'4px 10px', borderRadius:99 }}>
                     {item.word}
                   </span>
                 )
               })}
             </div>
-          </div>
 
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
-            <div style={card()}>
-              <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>📊 Palabras más mencionadas</p>
-              {wordData.slice(0,15).map(function(item,i) {
+            <div style={{ marginTop:14 }}>
+              <p style={{ fontSize:11, fontWeight:600, color:T2, marginBottom:8 }}>Top 10 palabras</p>
+              {qWordData.slice(0,10).map(function(item,i) {
+                const qMax = qWordData[0] ? qWordData[0].count : 1
                 return (
-                  <div key={item.word} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:7 }}>
+                  <div key={item.word} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
                     <span style={{ fontSize:11, fontWeight:700, color:RED, width:18 }}>{i+1}</span>
                     <span style={{ flex:1, fontSize:11, textTransform:'capitalize' }}>{item.word}</span>
                     <div style={{ width:80, height:5, background:S3, borderRadius:99, overflow:'hidden' }}>
-                      <div style={{ height:'100%', width:(item.count/maxCount*100)+'%', background:WORD_COLORS[i%WORD_COLORS.length], borderRadius:99 }} />
+                      <div style={{ height:'100%', width:(item.count/qMax*100)+'%', background:WORD_COLORS[i%WORD_COLORS.length], borderRadius:99 }} />
                     </div>
                     <span style={{ fontSize:10, fontWeight:600, color:T3, width:24, textAlign:'right' }}>{item.count}</span>
                   </div>
                 )
               })}
             </div>
-            <div style={card()}>
-              <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>📋 Resumen del análisis</p>
-              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                <div style={{ background:S2, borderRadius:10, padding:'12px 14px' }}>
-                  <p style={{ fontSize:10, color:T3, marginBottom:3 }}>TOTAL MENCIONES</p>
-                  <p style={{ fontSize:22, fontWeight:700, color:DARK }}>{wordData.reduce(function(s,w){return s+w.count},0)}</p>
-                  <p style={{ fontSize:10, color:T3 }}>palabras clave analizadas</p>
-                </div>
-                <div style={{ background:S2, borderRadius:10, padding:'12px 14px' }}>
-                  <p style={{ fontSize:10, color:T3, marginBottom:3 }}>PALABRA MÁS MENCIONADA</p>
-                  <p style={{ fontSize:18, fontWeight:700, color:RED, textTransform:'capitalize' }}>{wordData[0] ? wordData[0].word : '—'}</p>
-                  <p style={{ fontSize:10, color:T3 }}>{wordData[0] ? wordData[0].count : 0} veces</p>
-                </div>
-                <div style={{ background:S2, borderRadius:10, padding:'12px 14px' }}>
-                  <p style={{ fontSize:10, color:T3, marginBottom:6 }}>TOP 5 CONCEPTOS</p>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
-                    {wordData.slice(0,5).map(function(item,i) {
-                      return <span key={item.word} style={{ padding:'3px 9px', borderRadius:99, fontSize:11, fontWeight:600, background:WORD_COLORS[i]+'20', color:WORD_COLORS[i] }}>{item.word}</span>
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
-
-          <div style={{ display:'flex', justifyContent:'center' }}>
-            <button onClick={loadWords} style={{ padding:'8px 20px', background:S, border:'1.5px solid '+BD, borderRadius:99, fontSize:12, color:T2, cursor:'pointer' }}>
-              🔄 Actualizar análisis
-            </button>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
@@ -408,9 +378,8 @@ export default function Dashboard() {
   const [kpis, setKpis] = useState(null)
   const [dims, setDims] = useState([])
   const [areas, setAreas] = useState([])
+  const [perm, setPerm] = useState({ yesPct:0, noPct:0, total:0 })
   const [loading, setLoading] = useState(true)
-  const [wordData, setWordData] = useState([])
-  const [loadingWords, setLoadingWords] = useState(false)
   const [selectedQ, setSelectedQ] = useState('')
   const [qWordData, setQWordData] = useState([])
   const [loadingQWords, setLoadingQWords] = useState(false)
@@ -431,13 +400,14 @@ export default function Dashboard() {
       if (sessionIds.length === 0) {
         setKpis({ engagement:0, favorability:0, enps:0, total:0, promPct:0, detPct:0 })
         setDims(DIMS.map(function(name){ return { name:name, score:0, favorable:0, neutral:0, unfavorable:0 } }))
+        setPerm({ yesPct:0, noPct:0, total:0 })
         setLoading(false)
         return
       }
 
       const respResult = await supabase
         .from('responses')
-        .select('section_id,question_index,question_type,likert_value,nps_value')
+        .select('section_id,question_index,question_type,likert_value,nps_value,selected_option')
         .in('session_id', sessionIds)
       const rows = respResult.data || []
 
@@ -472,6 +442,15 @@ export default function Dashboard() {
       })
       setDims(dimScores)
 
+      const permRows = rows.filter(function(r){ return r.section_id===8 && r.question_type==='perm' && r.selected_option })
+      const permYes = permRows.filter(function(r){ return r.selected_option==='Sí' }).length
+      const permTotal = permRows.length
+      setPerm({
+        yesPct: permTotal ? Math.round((permYes/permTotal)*100) : 0,
+        noPct: permTotal ? Math.round(((permTotal-permYes)/permTotal)*100) : 0,
+        total: permTotal
+      })
+
       if (!fArea) {
         const sessResult = await supabase.from('survey_sessions').select('id,area').eq('completed',true)
         const engResult = await supabase.from('responses').select('session_id,likert_value').eq('section_id',1).eq('question_type','likert')
@@ -494,22 +473,6 @@ export default function Dashboard() {
     setLoading(false)
   }, [fArea, fTenure])
 
-  const loadWords = useCallback(async function() {
-    setLoadingWords(true)
-    try {
-      let q = supabase.from('responses')
-        .select('open_text, survey_sessions!inner(area,completed)')
-        .eq('question_type','open')
-        .eq('survey_sessions.completed', true)
-        .not('open_text','is',null)
-      if (fArea) q = q.eq('survey_sessions.area', fArea)
-      const result = await q
-      const texts = (result.data || []).map(function(r){return r.open_text}).filter(Boolean)
-      setWordData(getTopWords(texts, 40))
-    } catch(e) { console.error(e) }
-    setLoadingWords(false)
-  }, [fArea])
-
   const loadQWords = useCallback(async function() {
     if (!selectedQ) return
     setLoadingQWords(true)
@@ -529,7 +492,7 @@ export default function Dashboard() {
     setLoadingQWords(false)
   }, [selectedQ, fArea])
 
-  useEffect(function(){ loadData(); loadWords() }, [loadData, loadWords])
+  useEffect(function(){ loadData() }, [loadData])
   useEffect(function(){ loadQWords() }, [loadQWords])
 
   return (
@@ -545,9 +508,9 @@ export default function Dashboard() {
       </nav>
 
       {tab==='dash' ? (
-        <DashTab fArea={fArea} fTenure={fTenure} setFArea={setFArea} setFTenure={setFTenure} loading={loading} kpis={kpis} dims={dims} areas={areas} />
+        <DashTab fArea={fArea} fTenure={fTenure} setFArea={setFArea} setFTenure={setFTenure} loading={loading} kpis={kpis} dims={dims} areas={areas} perm={perm} />
       ) : (
-        <VozTab selectedQ={selectedQ} setSelectedQ={setSelectedQ} qWordData={qWordData} loadingQWords={loadingQWords} qResponseCount={qResponseCount} wordData={wordData} loadingWords={loadingWords} loadWords={loadWords} />
+        <VozTab fArea={fArea} selectedQ={selectedQ} setSelectedQ={setSelectedQ} qWordData={qWordData} loadingQWords={loadingQWords} qResponseCount={qResponseCount} />
       )}
     </div>
   )
