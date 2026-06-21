@@ -5,7 +5,7 @@ const RED='#E4002B', DARK='#1A0A0A', WARM='#FFF5F0', S='#fff', S2='#FFF8F6', S3=
 const BD='#E8DDD9', T2='#5C4A44', T3='#9C8680'
 const OK='#16A34A', WARN='#D97706', DANGER='#DC2626'
 const DIMS = ['Engagement','Pertenencia','Recursos','Apoyo del Jefe','Bienestar','Expectativas','Reconocimiento']
-const AREAS_F = ['Domicilios','Financiera y Contable','Desarrollo y Expansión','Sistemas','Recursos Humanos','Auditoría','Planta Bogotá - Operativo','Plantas CAR','Planta Medellín - Operativo','Mantenimiento','Entrenamiento','Operaciones','Mercadeo']]
+const AREAS_F = ['Domicilios','Financiera y Contable','Desarrollo y Expansión','Sistemas','Recursos Humanos','Auditoría','Planta Bogotá - Operativo','Plantas CAR','Planta Medellín - Operativo','Mantenimiento','Entrenamiento','Operaciones','Mercadeo']
 const colS = v => v>=70 ? OK : v>=55 ? WARN : DANGER
 
 const OPEN_QUESTIONS = [
