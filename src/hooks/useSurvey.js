@@ -42,7 +42,7 @@ export function useSurvey() {
       likert_value:    ans.type === 'likert'  ? ans.value : null,
       nps_value:       ans.type === 'nps'     ? ans.value : null,
       open_text:       ans.type === 'open'    ? ans.value : null,
-      selected_option: ans.type === 'select' || ans.type === 'radio' ? ans.value : null,
+      selected_option: ['select','radio','perm','exp'].includes(ans.type) ? ans.value : null,
     }))
 
     const { error } = await supabase.from('responses').insert(rows)
