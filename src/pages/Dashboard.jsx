@@ -224,6 +224,50 @@ function DimQuestionsCard(props) {
   )
 }
 
+function MotivosRankingCard(props) {
+  const rows = props.rows || []
+  const type = props.type
+  const title = props.title
+  const icon = props.icon
+
+  const filtered = rows.filter(function(r){ return r.question_type === type && r.selected_option })
+  const counts = {}
+  filtered.forEach(function(r) {
+    counts[r.selected_option] = (counts[r.selected_option] || 0) + 1
+  })
+  const total = filtered.length
+  const ranking = Object.entries(counts)
+    .map(function(entry) { return { label: entry[0], n: entry[1], pct: total ? Math.round((entry[1]/total)*100) : 0 } })
+    .sort(function(a,b) { return b.n - a.n })
+
+  return (
+    <div style={card()}>
+      <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>{icon} {title}</p>
+      {ranking.length ? ranking.map(function(r, i) {
+        return (
+          <div key={r.label} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:7 }}>
+            <span style={{ fontSize:11, fontWeight:700, color:RED, width:14 }}>{i+1}</span>
+            <span style={{ flex:1, fontSize:11 }}>{r.label}</span>
+            <div style={{ width:80, height:5, background:S3, borderRadius:99, overflow:'hidden' }}>
+              <div style={{ height:'100%', width:r.pct+'%', background:RED, borderRadius:99 }} />
+            </div>
+            <span style={{ fontSize:11, fontWeight:600, width:32, textAlign:'right', color:RED }}>{r.pct}%</span>
+          </div>
+        )
+      }) : <p style={{ fontSize:12, color:T3, textAlign:'center', padding:'20px 0' }}>Sin datos aún.</p>}
+      <p style={{ fontSize:10, color:T3, marginTop:8, paddingTop:8, borderTop:'1px solid '+BD }}>{total} selecciones registradas</p>
+    </div>
+  )
+}
+
+function PermMotivosCard(props) {
+  return <MotivosRankingCard rows={props.rows} type="perm_motivo" title="¿Qué motiva a quedarse?" icon="💚" />
+}
+
+function ExpMotivosCard(props) {
+  return <MotivosRankingCard rows={props.rows} type="exp_motivo" title="¿Qué define la experiencia?" icon="🎯" />
+}
+
 function RankingCard(props) {
   const fArea = props.fArea
   const areas = props.areas || []
@@ -374,6 +418,10 @@ function DashTab(props) {
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
             <PermanenceCard perm={perm} />
+            <PermMotivosCard rows={allRows} />
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
+            <ExpMotivosCard rows={allRows} />
             <div></div>
           </div>
           <DimQuestionsCard rows={allRows} />
