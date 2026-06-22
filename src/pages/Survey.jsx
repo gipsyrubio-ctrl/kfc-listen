@@ -291,31 +291,43 @@ function SelectInput({ si, qi, value, onChange, opts }) {
 
 function ExpInput({ si, qi, value, onChange }) {
   const opts = ['Definitivamente sí','Sí','Parcialmente','No','Definitivamente no']
-  const isPos = ['Definitivamente sí','Sí'].includes(value)
+  const motivos = (value && value.motivos) || []
+  const mainValue = value ? value.main : undefined
+  const isPos = ['Definitivamente sí','Sí'].includes(mainValue)
+
+  const setMain = (o) => onChange(si, qi, 'exp', { main: o, motivos: [] })
+  const toggleMotivo = (o) => {
+    const next = motivos.includes(o) ? motivos.filter(m => m !== o) : [...motivos, o]
+    onChange(si, qi, 'exp', { main: mainValue, motivos: next })
+  }
+
   return (
     <div>
       <div className="flex flex-col gap-1.5">
         {opts.map(o => (
-          <div key={o} onClick={() => onChange(si, qi, 'exp', o)}
+          <div key={o} onClick={() => setMain(o)}
             className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border-2 cursor-pointer
-              ${value === o ? 'border-[#E4002B] bg-[#FFF0EF]' : 'border-[#E8DDD9] hover:border-[#E4002B]'}`}>
-            <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border-2 ${value===o ? 'bg-[#E4002B] border-[#E4002B]' : 'border-[#E8DDD9]'}`}>
-              {value===o && <span className="text-white text-[10px]">✓</span>}
+              ${mainValue === o ? 'border-[#E4002B] bg-[#FFF0EF]' : 'border-[#E8DDD9] hover:border-[#E4002B]'}`}>
+            <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border-2 ${mainValue===o ? 'bg-[#E4002B] border-[#E4002B]' : 'border-[#E8DDD9]'}`}>
+              {mainValue===o && <span className="text-white text-[10px]">✓</span>}
             </div>
             <span className="text-sm">{o}</span>
           </div>
         ))}
       </div>
-      {value && (
+      {mainValue && (
         <div className="mt-3 p-3 bg-[#FFF8F6] rounded-xl border border-[#E8DDD9]">
           <p className="text-xs font-semibold text-[#5C4A44] mb-2">
             {isPos ? '¿Qué hace que tu experiencia haya sido positiva?' : '¿Cuál es la principal razón?'} (puedes elegir varias)
           </p>
           <div className="flex flex-col gap-1.5">
             {EXP_OPTS.map(r => (
-              <div key={r} onClick={e => e.currentTarget.classList.toggle('selected')}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-[#E8DDD9] cursor-pointer hover:border-[#E4002B] [&.selected]:border-[#E4002B] [&.selected]:bg-[#FFF0EF]">
-                <div className="w-4 h-4 rounded border-2 border-[#E8DDD9] flex-shrink-0"></div>
+              <div key={r} onClick={() => toggleMotivo(r)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 cursor-pointer
+                  ${motivos.includes(r) ? 'border-[#E4002B] bg-[#FFF0EF]' : 'border-[#E8DDD9] hover:border-[#E4002B]'}`}>
+                <div className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center ${motivos.includes(r) ? 'bg-[#E4002B] border-[#E4002B]' : 'border-[#E8DDD9]'}`}>
+                  {motivos.includes(r) && <span className="text-white text-[9px]">✓</span>}
+                </div>
                 <span className="text-xs">{r}</span>
               </div>
             ))}
@@ -327,27 +339,39 @@ function ExpInput({ si, qi, value, onChange }) {
 }
 
 function PermInput({ si, qi, value, onChange }) {
+  const motivos = (value && value.motivos) || []
+  const mainValue = value ? value.main : undefined
+
+  const setMain = (o) => onChange(si, qi, 'perm', { main: o, motivos: [] })
+  const toggleMotivo = (o) => {
+    const next = motivos.includes(o) ? motivos.filter(m => m !== o) : [...motivos, o]
+    onChange(si, qi, 'perm', { main: mainValue, motivos: next })
+  }
+
   return (
     <div>
       <div className="flex gap-2">
         {['Sí','No'].map(o => (
-          <button key={o} onClick={() => onChange(si, qi, 'perm', o)}
+          <button key={o} onClick={() => setMain(o)}
             className={`flex-1 py-3 rounded-xl border-2 font-semibold text-sm transition-all
-              ${value === o ? 'bg-[#E4002B] border-[#E4002B] text-white' : 'border-[#E8DDD9] text-[#5C4A44] hover:border-[#E4002B]'}`}>
+              ${mainValue === o ? 'bg-[#E4002B] border-[#E4002B] text-white' : 'border-[#E8DDD9] text-[#5C4A44] hover:border-[#E4002B]'}`}>
             {o}
           </button>
         ))}
       </div>
-      {value && (
+      {mainValue && (
         <div className="mt-3 p-3 bg-[#FFF8F6] rounded-xl border border-[#E8DDD9]">
           <p className="text-xs font-semibold text-[#5C4A44] mb-2">
-            {value === 'Sí' ? '¿Qué te motiva a quedarte?' : '¿Qué te llevaría a explorar otras oportunidades?'}
+            {mainValue === 'Sí' ? '¿Qué te motiva a quedarte?' : '¿Qué te llevaría a explorar otras oportunidades?'}
           </p>
           <div className="flex flex-col gap-1.5">
             {PERM_OPTS.map(o => (
-              <div key={o} onClick={e => e.currentTarget.classList.toggle('selected')}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-[#E8DDD9] cursor-pointer hover:border-[#E4002B] [&.selected]:border-[#E4002B] [&.selected]:bg-[#FFF0EF]">
-                <div className="w-4 h-4 rounded border-2 border-[#E8DDD9] flex-shrink-0"></div>
+              <div key={o} onClick={() => toggleMotivo(o)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 cursor-pointer
+                  ${motivos.includes(o) ? 'border-[#E4002B] bg-[#FFF0EF]' : 'border-[#E8DDD9] hover:border-[#E4002B]'}`}>
+                <div className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center ${motivos.includes(o) ? 'bg-[#E4002B] border-[#E4002B]' : 'border-[#E8DDD9]'}`}>
+                  {motivos.includes(o) && <span className="text-white text-[9px]">✓</span>}
+                </div>
                 <span className="text-xs">{o}</span>
               </div>
             ))}
