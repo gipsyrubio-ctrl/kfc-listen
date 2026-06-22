@@ -17,6 +17,47 @@ const OPEN_QUESTIONS = [
   { section: 8, dim:'Permanencia',     label:'¿Qué acción propondrías para mejorar tu experiencia?' },
 ]
 
+const DIM_QUESTIONS = [
+  { section: 1, dim:'Engagement', questions: [
+    'Me siento motivado/a para ir más allá de lo que se exige en el trabajo.',
+    'Mi trabajo me da una sensación de realización personal.',
+    'Me siento orgulloso/a de pertenecer a KFC.',
+  ]},
+  { section: 2, dim:'Pertenencia', questions: [
+    'Puedo ser yo mismo/a en mi trabajo.',
+    'Siento un fuerte sentido de pertenencia en mi equipo de trabajo.',
+    'Siento que pertenezco a KFC.',
+    'Me tratan con respeto.',
+  ]},
+  { section: 3, dim:'Recursos', questions: [
+    'Me siento plenamente capacitado/a para resolver los problemas de mis clientes internos.',
+    'Entiendo claramente lo que se espera de mí.',
+    'La formación recibida me ha preparado para mi cargo actual.',
+    'Tengo acceso a los recursos que necesito para hacer mi trabajo.',
+    'Mi equipo trabaja en conjunto para hacer las cosas.',
+  ]},
+  { section: 4, dim:'Apoyo del Jefe', questions: [
+    'Mi jefe me mantiene informado/a sobre lo que necesito saber para hacer mi trabajo eficazmente.',
+    'Mi jefe hace lo que dice que va a hacer.',
+    'Mi jefe me ayuda a eliminar las barreras que me impiden trabajar.',
+    'Mi jefe valora mis ideas y opiniones.',
+    'Mantengo conversaciones significativas con mi jefe sobre desempeño y desarrollo.',
+    'Puedo hablar abierta y cómodamente con mi jefe.',
+  ]},
+  { section: 5, dim:'Bienestar', questions: [
+    '¿Qué tan equilibrado sientes tu nivel de bienestar emocional y mental en tu cargo actual?',
+    'Puedo gestionar mi estrés en el trabajo.',
+    'No suelo preocuparme por problemas laborales en mi tiempo personal.',
+    'Creo que se producirá un cambio positivo como resultado de esta encuesta.',
+  ]},
+  { section: 6, dim:'Expectativas', questions: [
+    'Veo un camino para avanzar en mi carrera en KFC.',
+  ]},
+  { section: 7, dim:'Reconocimiento', questions: [
+    'Recibo reconocimiento cuando hago un buen trabajo.',
+  ]},
+]
+
 const STOPWORDS = new Set(['el','la','los','las','un','una','unos','unas','de','del','al','en','con','por','para','que','se','me','mi','tu','su','nos','es','son','fue','ser','estar','hay','más','pero','como','si','no','lo','le','les','y','a','o','e','u','muy','todo','toda','todos','todas','este','esta','estos','estas','ese','esa','esos','esas','aquel','aquella','ya','bien','cuando','donde','quien','cual','cuales','porque','aunque','sino','también','tampoco','así','aquí','allí','ahí','hoy','ayer','mañana','siempre','nunca','vez','veces','cada','otro','otra','otros','otras','mismo','misma','tanto','tan','solo','sólo','hacer','tiene','tengo','tenemos','pueden','poder','debe','deben','quiero','quiere','mucho','poco','algo','nada','entre','sobre','bajo','ante','tras','durante','mediante','según'])
 
 function getTopWords(texts, topN) {
@@ -137,6 +178,52 @@ function SentimentCard(props) {
   )
 }
 
+function DimQuestionsCard(props) {
+  const rows = props.rows || []
+
+  const data = DIM_QUESTIONS.map(function(dimGroup) {
+    const likertRows = rows.filter(function(r) {
+      return r.section_id === dimGroup.section && r.question_type === 'likert' && r.likert_value
+    })
+    const byIndex = {}
+    likertRows.forEach(function(r) {
+      if (!byIndex[r.question_index]) byIndex[r.question_index] = []
+      byIndex[r.question_index].push(r.likert_value)
+    })
+    const questions = dimGroup.questions.map(function(qText, qi) {
+      const vals = byIndex[qi] || []
+      const fav = vals.filter(function(v){ return v===4||v===5 }).length
+      const pct = vals.length ? Math.round((fav/vals.length)*100) : 0
+      return { text: qText, pct: pct, n: vals.length }
+    })
+    return { dim: dimGroup.dim, questions: questions }
+  })
+
+  return (
+    <div style={card({ marginBottom:14 })}>
+      <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>📋 Preguntas por dimensión</p>
+      {data.map(function(d) {
+        return (
+          <div key={d.dim} style={{ marginBottom:16 }}>
+            <p style={{ fontSize:11, fontWeight:700, color:RED, marginBottom:8, textTransform:'uppercase', letterSpacing:'0.3px' }}>{d.dim}</p>
+            {d.questions.map(function(q, i) {
+              return (
+                <div key={i} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                  <span style={{ flex:1, fontSize:11, color:T2, lineHeight:1.4 }}>{q.text}</span>
+                  <div style={{ width:70, height:6, background:S3, borderRadius:99, overflow:'hidden', flexShrink:0 }}>
+                    <div style={{ height:'100%', width:q.pct+'%', background:colS(q.pct), borderRadius:99 }} />
+                  </div>
+                  <span style={{ fontSize:11, fontWeight:700, width:32, textAlign:'right', color:colS(q.pct), flexShrink:0 }}>{q.pct}%</span>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function RankingCard(props) {
   const fArea = props.fArea
   const areas = props.areas || []
@@ -242,6 +329,7 @@ function DashTab(props) {
   const fArea = props.fArea, fTenure = props.fTenure
   const setFArea = props.setFArea, setFTenure = props.setFTenure
   const loading = props.loading, kpis = props.kpis, dims = props.dims, areas = props.areas, perm = props.perm
+  const allRows = props.allRows
 
   return (
     <div style={{ padding:16, maxWidth:1000, margin:'0 auto' }}>
@@ -288,6 +376,7 @@ function DashTab(props) {
             <PermanenceCard perm={perm} />
             <div></div>
           </div>
+          <DimQuestionsCard rows={allRows} />
           <FormulasCard />
         </div>
       )}
@@ -379,6 +468,7 @@ export default function Dashboard() {
   const [dims, setDims] = useState([])
   const [areas, setAreas] = useState([])
   const [perm, setPerm] = useState({ yesPct:0, noPct:0, total:0 })
+  const [allRows, setAllRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedQ, setSelectedQ] = useState('')
   const [qWordData, setQWordData] = useState([])
@@ -401,6 +491,7 @@ export default function Dashboard() {
         setKpis({ engagement:0, favorability:0, enps:0, total:0, promPct:0, detPct:0 })
         setDims(DIMS.map(function(name){ return { name:name, score:0, favorable:0, neutral:0, unfavorable:0 } }))
         setPerm({ yesPct:0, noPct:0, total:0 })
+        setAllRows([])
         setLoading(false)
         return
       }
@@ -410,6 +501,7 @@ export default function Dashboard() {
         .select('section_id,question_index,question_type,likert_value,nps_value,selected_option')
         .in('session_id', sessionIds)
       const rows = respResult.data || []
+      setAllRows(rows)
 
       const lk1 = rows.filter(function(r){ return r.question_type==='likert' && r.section_id===1 && r.likert_value })
       const lkAll = rows.filter(function(r){ return r.question_type==='likert' && r.likert_value })
@@ -508,7 +600,7 @@ export default function Dashboard() {
       </nav>
 
       {tab==='dash' ? (
-        <DashTab fArea={fArea} fTenure={fTenure} setFArea={setFArea} setFTenure={setFTenure} loading={loading} kpis={kpis} dims={dims} areas={areas} perm={perm} />
+        <DashTab fArea={fArea} fTenure={fTenure} setFArea={setFArea} setFTenure={setFTenure} loading={loading} kpis={kpis} dims={dims} areas={areas} perm={perm} allRows={allRows} />
       ) : (
         <VozTab fArea={fArea} selectedQ={selectedQ} setSelectedQ={setSelectedQ} qWordData={qWordData} loadingQWords={loadingQWords} qResponseCount={qResponseCount} />
       )}
