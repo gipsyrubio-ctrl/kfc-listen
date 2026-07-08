@@ -245,15 +245,15 @@ function MotivosRankingCard(props) {
   const type = props.type
   const title = props.title
   const icon = props.icon
+  const totalEncuestas = props.totalEncuestas || 1
 
   const filtered = rows.filter(function(r){ return r.question_type === type && r.selected_option })
   const counts = {}
   filtered.forEach(function(r) {
     counts[r.selected_option] = (counts[r.selected_option] || 0) + 1
   })
-  const total = filtered.length
   const ranking = Object.entries(counts)
-    .map(function(entry) { return { label: entry[0], n: entry[1], pct: total ? Math.round((entry[1]/total)*100) : 0 } })
+    .map(function(entry) { return { label: entry[0], n: entry[1], pct: Math.round((entry[1]/totalEncuestas)*100) } })
     .sort(function(a,b) { return b.n - a.n })
 
   return (
@@ -265,23 +265,25 @@ function MotivosRankingCard(props) {
             <span style={{ fontSize:11, fontWeight:700, color:RED, width:14 }}>{i+1}</span>
             <span style={{ flex:1, fontSize:11 }}>{r.label}</span>
             <div style={{ width:80, height:5, background:S3, borderRadius:99, overflow:'hidden' }}>
-              <div style={{ height:'100%', width:r.pct+'%', background:RED, borderRadius:99 }} />
+              <div style={{ height:'100%', width:Math.min(r.pct,100)+'%', background:RED, borderRadius:99 }} />
             </div>
             <span style={{ fontSize:11, fontWeight:600, width:32, textAlign:'right', color:RED }}>{r.pct}%</span>
           </div>
         )
       }) : <p style={{ fontSize:12, color:T3, textAlign:'center', padding:'20px 0' }}>Sin datos aún.</p>}
-      <p style={{ fontSize:10, color:T3, marginTop:8, paddingTop:8, borderTop:'1px solid '+BD }}>{total} selecciones registradas</p>
+      <p style={{ fontSize:10, color:T3, marginTop:8, paddingTop:8, borderTop:'1px solid '+BD }}>
+        % de {totalEncuestas} encuestados que marcaron esta opción
+      </p>
     </div>
   )
 }
 
 function PermMotivosCard(props) {
-  return <MotivosRankingCard rows={props.rows} type="perm_motivo" title="¿Qué motiva a quedarse?" icon="💚" />
+  return <MotivosRankingCard rows={props.rows} type="perm_motivo" title="¿Qué motiva a quedarse?" icon="💚" totalEncuestas={props.totalEncuestas} />
 }
 
 function ExpMotivosCard(props) {
-  return <MotivosRankingCard rows={props.rows} type="exp_motivo" title="¿Qué define la experiencia?" icon="🎯" />
+  return <MotivosRankingCard rows={props.rows} type="exp_motivo" title="¿Qué define la experiencia?" icon="🎯" totalEncuestas={props.totalEncuestas} />
 }
 
 function RankingCard(props) {
@@ -434,10 +436,10 @@ function DashTab(props) {
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
             <PermanenceCard perm={perm} />
-            <PermMotivosCard rows={allRows} />
+            <PermMotivosCard rows={allRows} totalEncuestas={kpis ? kpis.total : 1} />
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
-            <ExpMotivosCard rows={allRows} />
+            <ExpMotivosCard rows={allRows} totalEncuestas={kpis ? kpis.total : 1} />
             <div></div>
           </div>
           <DimQuestionsCard rows={allRows} />
@@ -487,7 +489,6 @@ function VozTab(props) {
           <div style={{ marginTop:14 }}>
             <p style={{ fontSize:11, color:T3, marginBottom:10 }}>{qWordData.reduce(function(s,w){return s+w.count},0)} menciones · {qResponseCount} respuestas a esta pregunta</p>
 
-            {/* Leyenda */}
             <div style={{ display:'flex', gap:12, marginBottom:10 }}>
               <div style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color:T2 }}>
                 <div style={{ width:10, height:10, borderRadius:2, background:OK }} />
