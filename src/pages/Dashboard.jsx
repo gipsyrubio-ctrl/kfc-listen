@@ -8,6 +8,23 @@ const DIMS = ['Engagement','Pertenencia','Recursos','Apoyo del Jefe','Bienestar'
 const AREAS_F = ['Domicilios','Financiera y Contable','Desarrollo y Expansión','Sistemas','Recursos Humanos','Auditoría','Planta Bogotá - Operativo','Plantas CAR','Planta Medellín - Operativo','Mantenimiento','Entrenamiento','Operaciones','Mercadeo']
 const colS = v => v>=70 ? OK : v>=55 ? WARN : DANGER
 
+const POSITIVE_WORDS = new Set([
+  'bien','bueno','buena','buenos','buenas','excelente','excelentes','genial','increible','increibles',
+  'motivado','motivada','motivados','motivadas','feliz','felices','contento','contenta','contentos','contentas',
+  'orgulloso','orgullosa','orgullosos','orgullosas','comodo','comoda','comodos','comodas',
+  'seguro','segura','seguros','seguras','confianza','apoyo','crecimiento','aprendizaje',
+  'reconocimiento','respeto','equipo','union','familia','amor','pasion','compromiso',
+  'oportunidad','desarrollo','estabilidad','satisfecho','satisfecha','satisfechos','satisfechas',
+  'agradecido','agradecida','agradecidos','agradecidas','positivo','positiva','positivos','positivas',
+  'comunicacion','liderazgo','colaboracion','trabajo','ambiente','cultura','valores',
+  'crecemos','crecer','aprender','mejorar','mejor','mejores','avanzar','avance',
+  'inclusion','diversidad','bienestar','salud','equilibrio','flexibilidad','confiamos',
+  'lideres','lider','gusta','gustan','encanta','encantan','disfruto','disfrutan',
+  'tranquilo','tranquila','tranquilos','tranquilas','emocionado','emocionada','ilusionado','ilusionada',
+  'capacitado','capacitada','preparado','preparada','empoderado','empoderada','valorado','valorada',
+  'escuchado','escuchada','importante','unidos','unidas','juntos','juntas','acompanado','acompanada'
+])
+
 const OPEN_QUESTIONS = [
   { section: 1, dim:'Engagement',      label:'¿Qué te hace sentir valorado/a e incluido/a?' },
   { section: 3, dim:'Recursos',        label:'¿Qué habilidad te gustaría desarrollar?' },
@@ -180,7 +197,6 @@ function SentimentCard(props) {
 
 function DimQuestionsCard(props) {
   const rows = props.rows || []
-
   const data = DIM_QUESTIONS.map(function(dimGroup) {
     const likertRows = rows.filter(function(r) {
       return r.section_id === dimGroup.section && r.question_type === 'likert' && r.likert_value
@@ -470,13 +486,27 @@ function VozTab(props) {
         ) : (
           <div style={{ marginTop:14 }}>
             <p style={{ fontSize:11, color:T3, marginBottom:10 }}>{qWordData.reduce(function(s,w){return s+w.count},0)} menciones · {qResponseCount} respuestas a esta pregunta</p>
+
+            {/* Leyenda */}
+            <div style={{ display:'flex', gap:12, marginBottom:10 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color:T2 }}>
+                <div style={{ width:10, height:10, borderRadius:2, background:OK }} />
+                Palabras positivas
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color:T2 }}>
+                <div style={{ width:10, height:10, borderRadius:2, background:RED }} />
+                Otras palabras
+              </div>
+            </div>
+
             <div style={{ display:'flex', flexWrap:'wrap', gap:7, alignItems:'center', justifyContent:'center', padding:'16px', background:S2, borderRadius:10 }}>
               {qWordData.map(function(item, i) {
                 const qMax = qWordData[0] ? qWordData[0].count : 1
                 const qMin = qWordData[qWordData.length-1] ? qWordData[qWordData.length-1].count : 1
                 const ratio = (item.count - qMin) / Math.max(qMax - qMin, 1)
                 const fontSize = Math.round(12 + ratio * 22)
-                const color = WORD_COLORS[i % WORD_COLORS.length]
+                const isPositive = POSITIVE_WORDS.has(item.word)
+                const color = isPositive ? OK : WORD_COLORS[i % WORD_COLORS.length]
                 return (
                   <span key={item.word} title={item.count+' menciones'} style={{ fontSize:fontSize, fontWeight: ratio > 0.5 ? 700 : 500, color:color, background:color+'15', padding:'4px 10px', borderRadius:99 }}>
                     {item.word}
@@ -489,12 +519,14 @@ function VozTab(props) {
               <p style={{ fontSize:11, fontWeight:600, color:T2, marginBottom:8 }}>Top 10 palabras</p>
               {qWordData.slice(0,10).map(function(item,i) {
                 const qMax = qWordData[0] ? qWordData[0].count : 1
+                const isPositive = POSITIVE_WORDS.has(item.word)
+                const color = isPositive ? OK : WORD_COLORS[i % WORD_COLORS.length]
                 return (
                   <div key={item.word} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
                     <span style={{ fontSize:11, fontWeight:700, color:RED, width:18 }}>{i+1}</span>
-                    <span style={{ flex:1, fontSize:11, textTransform:'capitalize' }}>{item.word}</span>
+                    <span style={{ flex:1, fontSize:11, textTransform:'capitalize', color: isPositive ? OK : DARK }}>{item.word}</span>
                     <div style={{ width:80, height:5, background:S3, borderRadius:99, overflow:'hidden' }}>
-                      <div style={{ height:'100%', width:(item.count/qMax*100)+'%', background:WORD_COLORS[i%WORD_COLORS.length], borderRadius:99 }} />
+                      <div style={{ height:'100%', width:(item.count/qMax*100)+'%', background:color, borderRadius:99 }} />
                     </div>
                     <span style={{ fontSize:10, fontWeight:600, color:T3, width:24, textAlign:'right' }}>{item.count}</span>
                   </div>
