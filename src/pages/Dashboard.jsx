@@ -488,7 +488,6 @@ function VozTab(props) {
         ) : (
           <div style={{ marginTop:14 }}>
             <p style={{ fontSize:11, color:T3, marginBottom:10 }}>{qWordData.reduce(function(s,w){return s+w.count},0)} menciones · {qResponseCount} respuestas a esta pregunta</p>
-
             <div style={{ display:'flex', gap:12, marginBottom:10 }}>
               <div style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color:T2 }}>
                 <div style={{ width:10, height:10, borderRadius:2, background:OK }} />
@@ -499,7 +498,6 @@ function VozTab(props) {
                 Otras palabras
               </div>
             </div>
-
             <div style={{ display:'flex', flexWrap:'wrap', gap:7, alignItems:'center', justifyContent:'center', padding:'16px', background:S2, borderRadius:10 }}>
               {qWordData.map(function(item, i) {
                 const qMax = qWordData[0] ? qWordData[0].count : 1
@@ -515,7 +513,6 @@ function VozTab(props) {
                 )
               })}
             </div>
-
             <div style={{ marginTop:14 }}>
               <p style={{ fontSize:11, fontWeight:600, color:T2, marginBottom:8 }}>Top 10 palabras</p>
               {qWordData.slice(0,10).map(function(item,i) {
@@ -577,12 +574,21 @@ export default function Dashboard() {
         return
       }
 
-      const respResult = await supabase
-        .from('responses')
-        .select('section_id,question_index,question_type,likert_value,nps_value,selected_option')
-        .in('session_id', sessionIds)
-        .limit(10000)
-      const rows = respResult.data || []
+      // Paginación para traer todas las filas sin límite de Supabase
+      let rows = []
+      let from = 0
+      const pageSize = 1000
+      while (true) {
+        const { data: page, error: pageErr } = await supabase
+          .from('responses')
+          .select('section_id,question_index,question_type,likert_value,nps_value,selected_option')
+          .in('session_id', sessionIds)
+          .range(from, from + pageSize - 1)
+        if (pageErr || !page || page.length === 0) break
+        rows = rows.concat(page)
+        if (page.length < pageSize) break
+        from += pageSize
+      }
       setAllRows(rows)
 
       const lk1 = rows.filter(function(r){ return r.question_type==='likert' && r.section_id===1 && r.likert_value })
@@ -627,7 +633,7 @@ export default function Dashboard() {
 
       if (!fArea) {
         const sessResult = await supabase.from('survey_sessions').select('id,area').eq('completed',true)
-        const engResult = await supabase.from('responses').select('session_id,likert_value').eq('section_id',1).eq('question_type','likert').limit(10000)
+        const engResult = await supabase.from('responses').select('session_id,likert_value').eq('section_id',1).eq('question_type','likert').range(0,4999)
         const sessions = sessResult.data || []
         const engR = engResult.data || []
         const areaMap = {}
@@ -657,7 +663,7 @@ export default function Dashboard() {
         .eq('section_id', parseInt(selectedQ))
         .eq('survey_sessions.completed', true)
         .not('open_text','is',null)
-        .limit(10000)
+        .range(0, 4999)
       if (fArea) q = q.eq('survey_sessions.area', fArea)
       const result = await q
       const texts = (result.data || []).map(function(r){return r.open_text}).filter(Boolean)
