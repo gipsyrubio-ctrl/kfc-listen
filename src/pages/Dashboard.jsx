@@ -581,6 +581,7 @@ export default function Dashboard() {
         .from('responses')
         .select('section_id,question_index,question_type,likert_value,nps_value,selected_option')
         .in('session_id', sessionIds)
+        .limit(10000)
       const rows = respResult.data || []
       setAllRows(rows)
 
@@ -626,7 +627,7 @@ export default function Dashboard() {
 
       if (!fArea) {
         const sessResult = await supabase.from('survey_sessions').select('id,area').eq('completed',true)
-        const engResult = await supabase.from('responses').select('session_id,likert_value').eq('section_id',1).eq('question_type','likert')
+        const engResult = await supabase.from('responses').select('session_id,likert_value').eq('section_id',1).eq('question_type','likert').limit(10000)
         const sessions = sessResult.data || []
         const engR = engResult.data || []
         const areaMap = {}
@@ -656,6 +657,7 @@ export default function Dashboard() {
         .eq('section_id', parseInt(selectedQ))
         .eq('survey_sessions.completed', true)
         .not('open_text','is',null)
+        .limit(10000)
       if (fArea) q = q.eq('survey_sessions.area', fArea)
       const result = await q
       const texts = (result.data || []).map(function(r){return r.open_text}).filter(Boolean)
