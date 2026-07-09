@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase.js'
 
 const RED='#E4002B', DARK='#1A0A0A', WARM='#FFF5F0', S='#fff', S2='#FFF8F6', S3='#F5F0EE'
@@ -77,8 +77,8 @@ const DIM_QUESTIONS = [
 
 const STOPWORDS = new Set(['el','la','los','las','un','una','unos','unas','de','del','al','en','con','por','para','que','se','me','mi','tu','su','nos','es','son','fue','ser','estar','hay','más','pero','como','si','no','lo','le','les','y','a','o','e','u','muy','todo','toda','todos','todas','este','esta','estos','estas','ese','esa','esos','esas','aquel','aquella','ya','bien','cuando','donde','quien','cual','cuales','porque','aunque','sino','también','tampoco','así','aquí','allí','ahí','hoy','ayer','mañana','siempre','nunca','vez','veces','cada','otro','otra','otros','otras','mismo','misma','tanto','tan','solo','sólo','hacer','tiene','tengo','tenemos','pueden','poder','debe','deben','quiero','quiere','mucho','poco','algo','nada','entre','sobre','bajo','ante','tras','durante','mediante','según'])
 
-function getTopWords(texts, topN) {
-  if (!topN) topN = 40
+function getTopBigrams(texts, topN) {
+  if (!topN) topN = 30
   const freq = {}
   texts.forEach(function(text) {
     if (!text) return
@@ -86,10 +86,14 @@ function getTopWords(texts, topN) {
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-záéíóúüñ\s]/gi, ' ')
       .split(/\s+/)
-      .filter(function(w) { return w.length > 3 && !STOPWORDS.has(w) })
-    words.forEach(function(w) { freq[w] = (freq[w] || 0) + 1 })
+      .filter(function(w) { return w.length > 2 && !STOPWORDS.has(w) })
+    for (let i = 0; i < words.length - 1; i++) {
+      const bigram = words[i] + ' ' + words[i+1]
+      freq[bigram] = (freq[bigram] || 0) + 1
+    }
   })
   return Object.entries(freq)
+    .filter(function(e) { return e[1] > 1 })
     .sort(function(a, b) { return b[1] - a[1] })
     .slice(0, topN)
     .map(function(entry) { return { word: entry[0], count: entry[1] } })
@@ -240,14 +244,74 @@ function DimQuestionsCard(props) {
   )
 }
 
-function MotivosRankingCard(props) {
+function PermMotivosCard(props) {
   const rows = props.rows || []
-  const type = props.type
-  const title = props.title
-  const icon = props.icon
   const totalEncuestas = props.totalEncuestas || 1
 
-  const filtered = rows.filter(function(r){ return r.question_type === type && r.selected_option })
+  const siSessions = props.siSessions || []
+  const noSessions = props.noSessions || []
+
+  function getRanking(sessionIds) {
+    const filtered = rows.filter(function(r){
+      return r.question_type === 'perm_motivo' && r.selected_option && sessionIds.indexOf(r.session_id) >= 0
+    })
+    const counts = {}
+    filtered.forEach(function(r) {
+      counts[r.selected_option] = (counts[r.selected_option] || 0) + 1
+    })
+    return Object.entries(counts)
+      .map(function(entry) { return { label: entry[0], n: entry[1], pct: Math.round((entry[1]/totalEncuestas)*100) } })
+      .sort(function(a,b) { return b.n - a.n })
+  }
+
+  const siRanking = getRanking(siSessions)
+  const noRanking = getRanking(noSessions)
+
+  function renderList(ranking, color) {
+    if (!ranking.length) return <p style={{ fontSize:11, color:T3, padding:'8px 0' }}>Sin datos aún.</p>
+    return ranking.map(function(r, i) {
+      return (
+        <div key={r.label} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:7 }}>
+          <span style={{ fontSize:11, fontWeight:700, color:color, width:14 }}>{i+1}</span>
+          <span style={{ flex:1, fontSize:11 }}>{r.label}</span>
+          <div style={{ width:80, height:5, background:S3, borderRadius:99, overflow:'hidden' }}>
+            <div style={{ height:'100%', width:Math.min(r.pct,100)+'%', background:color, borderRadius:99 }} />
+          </div>
+          <span style={{ fontSize:11, fontWeight:600, width:32, textAlign:'right', color:color }}>{r.pct}%</span>
+        </div>
+      )
+    })
+  }
+
+  return (
+    <div style={card()}>
+      <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>💚 ¿Qué motiva a quedarse?</p>
+      <div style={{ marginBottom:12 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+          <div style={{ width:10, height:10, borderRadius:2, background:OK }} />
+          <span style={{ fontSize:11, fontWeight:700, color:OK }}>Quienes dijeron Sí ({siSessions.length})</span>
+        </div>
+        {renderList(siRanking, OK)}
+      </div>
+      <div style={{ borderTop:'1px solid '+BD, paddingTop:12 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+          <div style={{ width:10, height:10, borderRadius:2, background:DANGER }} />
+          <span style={{ fontSize:11, fontWeight:700, color:DANGER }}>Quienes dijeron No ({noSessions.length})</span>
+        </div>
+        {renderList(noRanking, DANGER)}
+      </div>
+      <p style={{ fontSize:10, color:T3, marginTop:8, paddingTop:8, borderTop:'1px solid '+BD }}>
+        % de {totalEncuestas} encuestados que marcaron esta opción
+      </p>
+    </div>
+  )
+}
+
+function ExpMotivosCard(props) {
+  const rows = props.rows || []
+  const totalEncuestas = props.totalEncuestas || 1
+
+  const filtered = rows.filter(function(r){ return r.question_type === 'exp_motivo' && r.selected_option })
   const counts = {}
   filtered.forEach(function(r) {
     counts[r.selected_option] = (counts[r.selected_option] || 0) + 1
@@ -258,7 +322,7 @@ function MotivosRankingCard(props) {
 
   return (
     <div style={card()}>
-      <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>{icon} {title}</p>
+      <p style={{ fontSize:12, fontWeight:600, marginBottom:12 }}>🎯 ¿Qué define la experiencia?</p>
       {ranking.length ? ranking.map(function(r, i) {
         return (
           <div key={r.label} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:7 }}>
@@ -276,14 +340,6 @@ function MotivosRankingCard(props) {
       </p>
     </div>
   )
-}
-
-function PermMotivosCard(props) {
-  return <MotivosRankingCard rows={props.rows} type="perm_motivo" title="¿Qué motiva a quedarse?" icon="💚" totalEncuestas={props.totalEncuestas} />
-}
-
-function ExpMotivosCard(props) {
-  return <MotivosRankingCard rows={props.rows} type="exp_motivo" title="¿Qué define la experiencia?" icon="🎯" totalEncuestas={props.totalEncuestas} />
 }
 
 function RankingCard(props) {
@@ -391,7 +447,7 @@ function DashTab(props) {
   const fArea = props.fArea, fTenure = props.fTenure
   const setFArea = props.setFArea, setFTenure = props.setFTenure
   const loading = props.loading, kpis = props.kpis, dims = props.dims, areas = props.areas, perm = props.perm
-  const allRows = props.allRows
+  const allRows = props.allRows, siSessions = props.siSessions, noSessions = props.noSessions
 
   return (
     <div style={{ padding:16, maxWidth:1000, margin:'0 auto' }}>
@@ -436,7 +492,7 @@ function DashTab(props) {
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
             <PermanenceCard perm={perm} />
-            <PermMotivosCard rows={allRows} totalEncuestas={kpis ? kpis.total : 1} />
+            <PermMotivosCard rows={allRows} totalEncuestas={kpis ? kpis.total : 1} siSessions={siSessions} noSessions={noSessions} />
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
             <ExpMotivosCard rows={allRows} totalEncuestas={kpis ? kpis.total : 1} />
@@ -458,7 +514,7 @@ function VozTab(props) {
   return (
     <div style={{ padding:16, maxWidth:1000, margin:'0 auto' }}>
       <h2 style={{ fontSize:18, fontWeight:700, color:DARK, marginBottom:4 }}>💬 Voz del Empleado</h2>
-      <p style={{ fontSize:11, color:T3, marginBottom:4 }}>Análisis de respuestas abiertas · Palabras más frecuentes de los colaboradores</p>
+      <p style={{ fontSize:11, color:T3, marginBottom:4 }}>Análisis de respuestas abiertas · Frases más frecuentes de los colaboradores</p>
       {fArea ? (
         <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#FFF0EF', border:'1px solid #FECDD3', borderRadius:99, padding:'4px 12px', marginBottom:14, fontSize:11, color:RED, fontWeight:600 }}>
           📍 Filtrando por: {fArea}
@@ -478,7 +534,7 @@ function VozTab(props) {
         </select>
 
         {!selectedQ ? (
-          <p style={{ fontSize:12, color:T3, textAlign:'center', padding:'24px 0' }}>Elige una pregunta arriba para ver su nube de palabras.</p>
+          <p style={{ fontSize:12, color:T3, textAlign:'center', padding:'24px 0' }}>Elige una pregunta arriba para ver su nube de frases.</p>
         ) : loadingQWords ? (
           <div style={{ textAlign:'center', padding:'30px 0', color:T3 }}>
             <p style={{ fontSize:12 }}>Analizando esta pregunta…</p>
@@ -488,23 +544,26 @@ function VozTab(props) {
         ) : (
           <div style={{ marginTop:14 }}>
             <p style={{ fontSize:11, color:T3, marginBottom:10 }}>{qWordData.reduce(function(s,w){return s+w.count},0)} menciones · {qResponseCount} respuestas a esta pregunta</p>
+
             <div style={{ display:'flex', gap:12, marginBottom:10 }}>
               <div style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color:T2 }}>
                 <div style={{ width:10, height:10, borderRadius:2, background:OK }} />
-                Palabras positivas
+                Frases positivas
               </div>
               <div style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color:T2 }}>
                 <div style={{ width:10, height:10, borderRadius:2, background:RED }} />
-                Otras palabras
+                Otras frases
               </div>
             </div>
+
             <div style={{ display:'flex', flexWrap:'wrap', gap:7, alignItems:'center', justifyContent:'center', padding:'16px', background:S2, borderRadius:10 }}>
               {qWordData.map(function(item, i) {
                 const qMax = qWordData[0] ? qWordData[0].count : 1
                 const qMin = qWordData[qWordData.length-1] ? qWordData[qWordData.length-1].count : 1
                 const ratio = (item.count - qMin) / Math.max(qMax - qMin, 1)
-                const fontSize = Math.round(12 + ratio * 22)
-                const isPositive = POSITIVE_WORDS.has(item.word)
+                const fontSize = Math.round(11 + ratio * 18)
+                const words = item.word.split(' ')
+                const isPositive = POSITIVE_WORDS.has(words[0]) || POSITIVE_WORDS.has(words[1])
                 const color = isPositive ? OK : WORD_COLORS[i % WORD_COLORS.length]
                 return (
                   <span key={item.word} title={item.count+' menciones'} style={{ fontSize:fontSize, fontWeight: ratio > 0.5 ? 700 : 500, color:color, background:color+'15', padding:'4px 10px', borderRadius:99 }}>
@@ -513,16 +572,18 @@ function VozTab(props) {
                 )
               })}
             </div>
+
             <div style={{ marginTop:14 }}>
-              <p style={{ fontSize:11, fontWeight:600, color:T2, marginBottom:8 }}>Top 10 palabras</p>
+              <p style={{ fontSize:11, fontWeight:600, color:T2, marginBottom:8 }}>Top 10 frases</p>
               {qWordData.slice(0,10).map(function(item,i) {
                 const qMax = qWordData[0] ? qWordData[0].count : 1
-                const isPositive = POSITIVE_WORDS.has(item.word)
+                const words = item.word.split(' ')
+                const isPositive = POSITIVE_WORDS.has(words[0]) || POSITIVE_WORDS.has(words[1])
                 const color = isPositive ? OK : WORD_COLORS[i % WORD_COLORS.length]
                 return (
                   <div key={item.word} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
                     <span style={{ fontSize:11, fontWeight:700, color:RED, width:18 }}>{i+1}</span>
-                    <span style={{ flex:1, fontSize:11, textTransform:'capitalize', color: isPositive ? OK : DARK }}>{item.word}</span>
+                    <span style={{ flex:1, fontSize:11, color: isPositive ? OK : DARK }}>{item.word}</span>
                     <div style={{ width:80, height:5, background:S3, borderRadius:99, overflow:'hidden' }}>
                       <div style={{ height:'100%', width:(item.count/qMax*100)+'%', background:color, borderRadius:99 }} />
                     </div>
@@ -547,6 +608,8 @@ export default function Dashboard() {
   const [areas, setAreas] = useState([])
   const [perm, setPerm] = useState({ yesPct:0, noPct:0, total:0 })
   const [allRows, setAllRows] = useState([])
+  const [siSessions, setSiSessions] = useState([])
+  const [noSessions, setNoSessions] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedQ, setSelectedQ] = useState('')
   const [qWordData, setQWordData] = useState([])
@@ -570,18 +633,20 @@ export default function Dashboard() {
         setDims(DIMS.map(function(name){ return { name:name, score:0, favorable:0, neutral:0, unfavorable:0 } }))
         setPerm({ yesPct:0, noPct:0, total:0 })
         setAllRows([])
+        setSiSessions([])
+        setNoSessions([])
         setLoading(false)
         return
       }
 
-      // Paginación para traer todas las filas sin límite de Supabase
+      // Paginación para traer todas las filas
       let rows = []
       let from = 0
       const pageSize = 1000
       while (true) {
         const { data: page, error: pageErr } = await supabase
           .from('responses')
-          .select('section_id,question_index,question_type,likert_value,nps_value,selected_option')
+          .select('session_id,section_id,question_index,question_type,likert_value,nps_value,selected_option')
           .in('session_id', sessionIds)
           .range(from, from + pageSize - 1)
         if (pageErr || !page || page.length === 0) break
@@ -590,6 +655,21 @@ export default function Dashboard() {
         from += pageSize
       }
       setAllRows(rows)
+
+      // Separar sesiones por respuesta Sí/No de permanencia
+      const permRows = rows.filter(function(r){ return r.section_id===8 && r.question_type==='perm' && r.selected_option })
+      const siIds = permRows.filter(function(r){ return r.selected_option==='Sí' }).map(function(r){ return r.session_id })
+      const noIds = permRows.filter(function(r){ return r.selected_option==='No' }).map(function(r){ return r.session_id })
+      setSiSessions(siIds)
+      setNoSessions(noIds)
+
+      const permYes = siIds.length
+      const permTotal = permRows.length
+      setPerm({
+        yesPct: permTotal ? Math.round((permYes/permTotal)*100) : 0,
+        noPct: permTotal ? Math.round(((permTotal-permYes)/permTotal)*100) : 0,
+        total: permTotal
+      })
 
       const lk1 = rows.filter(function(r){ return r.question_type==='likert' && r.section_id===1 && r.likert_value })
       const lkAll = rows.filter(function(r){ return r.question_type==='likert' && r.likert_value })
@@ -622,20 +702,18 @@ export default function Dashboard() {
       })
       setDims(dimScores)
 
-      const permRows = rows.filter(function(r){ return r.section_id===8 && r.question_type==='perm' && r.selected_option })
-      const permYes = permRows.filter(function(r){ return r.selected_option==='Sí' }).length
-      const permTotal = permRows.length
-      setPerm({
-        yesPct: permTotal ? Math.round((permYes/permTotal)*100) : 0,
-        noPct: permTotal ? Math.round(((permTotal-permYes)/permTotal)*100) : 0,
-        total: permTotal
-      })
-
       if (!fArea) {
         const sessResult = await supabase.from('survey_sessions').select('id,area').eq('completed',true)
-        const engResult = await supabase.from('responses').select('session_id,likert_value').eq('section_id',1).eq('question_type','likert').range(0,4999)
+        let engRows = []
+        let engFrom = 0
+        while (true) {
+          const { data: engPage } = await supabase.from('responses').select('session_id,likert_value').eq('section_id',1).eq('question_type','likert').range(engFrom, engFrom+999)
+          if (!engPage || engPage.length === 0) break
+          engRows = engRows.concat(engPage)
+          if (engPage.length < 1000) break
+          engFrom += 1000
+        }
         const sessions = sessResult.data || []
-        const engR = engResult.data || []
         const areaMap = {}
         sessions.forEach(function(s) {
           if (!areaMap[s.area]) areaMap[s.area] = []
@@ -643,7 +721,7 @@ export default function Dashboard() {
         })
         const ranking = Object.entries(areaMap).map(function(entry) {
           const area = entry[0], ids = entry[1]
-          const ar = engR.filter(function(r){ return ids.indexOf(r.session_id)>=0 && r.likert_value })
+          const ar = engRows.filter(function(r){ return ids.indexOf(r.session_id)>=0 && r.likert_value })
           const avg = ar.length ? ar.reduce(function(s,r){return s+r.likert_value},0)/ar.length : 0
           return { area:area, score:Math.round(((avg-1)/4)*100), n:ids.length }
         }).sort(function(a,b){ return b.score - a.score })
@@ -668,7 +746,7 @@ export default function Dashboard() {
       const result = await q
       const texts = (result.data || []).map(function(r){return r.open_text}).filter(Boolean)
       setQResponseCount(texts.length)
-      setQWordData(getTopWords(texts, 30))
+      setQWordData(getTopBigrams(texts, 30))
     } catch(e) { console.error(e) }
     setLoadingQWords(false)
   }, [selectedQ, fArea])
@@ -689,7 +767,7 @@ export default function Dashboard() {
       </nav>
 
       {tab==='dash' ? (
-        <DashTab fArea={fArea} fTenure={fTenure} setFArea={setFArea} setFTenure={setFTenure} loading={loading} kpis={kpis} dims={dims} areas={areas} perm={perm} allRows={allRows} />
+        <DashTab fArea={fArea} fTenure={fTenure} setFArea={setFArea} setFTenure={setFTenure} loading={loading} kpis={kpis} dims={dims} areas={areas} perm={perm} allRows={allRows} siSessions={siSessions} noSessions={noSessions} />
       ) : (
         <VozTab fArea={fArea} selectedQ={selectedQ} setSelectedQ={setSelectedQ} qWordData={qWordData} loadingQWords={loadingQWords} qResponseCount={qResponseCount} />
       )}
